@@ -26,10 +26,6 @@ pnpm build
 
 Repo `MinhNhatIT-001/EpubAudio`, framework Vite, build `pnpm build`, output `dist`. Không cần khóa dịch vụ đọc.
 
-## Thử VieNeu trên máy
-
-Xem [local/README.md](local/README.md). Đây là thử nghiệm tạo audio tiếng Việt trên Mac, chưa tích hợp vào trình đọc đã xuất bản. Model và môi trường nằm ngoài Git trong thư mục `.local`.
-
 ## Giới hạn
 
 Giọng thiết bị phụ thuộc hệ điều hành/trình duyệt; danh sách chỉ gồm giọng Việt. Theo vết và đọc nền cũng phụ thuộc trình duyệt. Dữ liệu sách ở IndexedDB, chưa đồng bộ đám mây. Không hỗ trợ DRM hoặc OCR chữ trong ảnh. Script và popup của EPUB bị vô hiệu hóa.
