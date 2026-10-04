@@ -1,1 +1,0 @@
-export function elevenKey(req) { const personal=req.headers['x-elevenlabs-key']; return (typeof personal==='string' && personal.trim() ? personal.trim() : process.env.ELEVENLABS_API_KEY || '').trim(); }
