@@ -13,9 +13,9 @@ const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const drawIcons = () => createIcons({ icons, attrs: { 'stroke-width': 1.6 } });
 let prefs;
 try { prefs = JSON.parse(localStorage.getItem('epubaudio-prefs') || '{}'); } catch { prefs = {}; }
-prefs = { theme: 'original', font: '', size: 19, line: 1.8, rate: 1, volume: 1, provider: 'device', follow: true, auto: true, ...prefs };
-prefs.provider='device'; delete prefs.voice; delete prefs.voiceName; delete prefs.voiceCatalogVersion; delete prefs.stability;
-const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null, deviceSession: null };
+prefs = { theme: 'original', font: '', size: 19, line: 1.8, rate: 1, volume: 1, provider: 'browser', follow: true, auto: true, ...prefs };
+prefs.browserVoice=prefs.browserVoice || prefs.deviceVoice; delete prefs.deviceVoice; prefs.provider='browser'; delete prefs.voice; delete prefs.voiceName; delete prefs.voiceCatalogVersion; delete prefs.stability;
+const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null, browserSession: null, browserVoices: [] };
 let sleepTimer, toastTimer, saveTimer, previewAudio;
 const objectUrls = new Set();
 const urlFor = blob => { const url = URL.createObjectURL(blob); objectUrls.add(url); return url; };
@@ -215,22 +215,48 @@ async function bookmarksPanel() {
   document.querySelectorAll('[data-unmark]').forEach(el => el.onclick = safely(async () => { const { book, mark } = entries[+el.dataset.unmark]; book.bookmarks = book.bookmarks.filter(b => b.cfi !== mark.cfi); await set(`book:${book.id}`, book); if (state.current?.id === book.id) state.current.bookmarks = book.bookmarks; await bookmarksPanel(); }));
 }
 
-function voicesPanel() {
-  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn giọng Việt có trên thiết bị. Chất lượng và theo vết phụ thuộc trình duyệt.</p><label class="field-label" for="device-voice">GIỌNG THIẾT BỊ</label><select id="device-voice" class="full-width"></select><p class="small-note">Nếu danh sách trống, thiết bị chưa cung cấp giọng Việt cho trình duyệt.</p><button class="button full-width" id="test-device">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
-  const list=window.speechSynthesis?.getVoices().filter(v=>v.lang.toLowerCase().startsWith('vi')) || [];
-  $('device-voice').innerHTML=list.length?list.map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join(''):'<option value="">Chưa có giọng tiếng Việt</option>';
-  $('device-voice').value=list.some(v=>v.voiceURI===prefs.deviceVoice)?prefs.deviceVoice:list[0]?.voiceURI || '';
-  prefs.deviceVoice=$('device-voice').value;persistPrefs();updateVoiceLabel();
-  $('device-voice').onchange=e=>{stopPlayback();prefs.deviceVoice=e.target.value;persistPrefs();updateVoiceLabel();};
-  $('speech-rate').oninput=e=>{prefs.rate=+e.target.value;$('rate-label').textContent=`${prefs.rate}×`;setRate();};
-  $('test-device').onclick=()=>{if(!list.length)return notify('Thiết bị chưa có giọng tiếng Việt.');stopPlayback();const utter=new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.');utter.voice=list.find(v=>v.voiceURI===prefs.deviceVoice);utter.lang='vi-VN';utter.rate=prefs.rate;speechSynthesis.speak(utter);};
+function browserVoices() {
+  const known=new Map(state.browserVoices.map(v=>[v.voiceURI,v]));
+  for(const voice of window.speechSynthesis?.getVoices() || [])if(voice.lang.toLowerCase().startsWith('vi'))known.set(voice.voiceURI,voice);
+  state.browserVoices=[...known.values()];return state.browserVoices;
 }
-function updateVoiceLabel() { $('player-voice-name').textContent=window.speechSynthesis?.getVoices().find(v=>v.voiceURI===prefs.deviceVoice)?.name || 'Giọng thiết bị'; }
+function chosenBrowserVoice() {
+  const voices=browserVoices();
+  return prefs.browserVoice?voices.find(v=>v.voiceURI===prefs.browserVoice):voices[0];
+}
+function rememberBrowserVoice(voice) {
+  if(!voice)return;
+  prefs.browserVoice=voice.voiceURI;prefs.browserVoiceName=voice.name;persistPrefs();updateVoiceLabel();
+}
+function refreshBrowserVoiceOptions() {
+  const select=$('browser-voice');if(!select || document.activeElement===select)return;
+  const list=browserVoices(),selected=prefs.browserVoice || select.value || list[0]?.voiceURI || '';
+  const signature=JSON.stringify([list.map(v=>[v.voiceURI,v.name,v.lang]),selected]);
+  if(select.dataset.signature===signature)return;
+  select.innerHTML=list.map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join('');
+  if(selected && !list.some(v=>v.voiceURI===selected))select.insertAdjacentHTML('afterbegin',`<option value="${esc(selected)}" disabled>${esc(prefs.browserVoiceName || 'Giọng đã chọn')} · Đang chờ trình duyệt nạp</option>`);
+  if(!list.length && !selected)select.innerHTML='<option value="">Đang chờ giọng tiếng Việt</option>';
+  select.value=selected;select.dataset.signature=signature;
+}
+function voicesPanel() {
+  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn và nghe thử giọng mà trình duyệt cung cấp. Giọng đã chọn được giữ khi danh sách cập nhật.</p><label class="field-label" for="browser-voice">GIỌNG TRÌNH DUYỆT</label><select id="browser-voice" class="full-width"></select><p class="small-note">Danh sách có thể nạp thêm giọng sau khi mở trang. Web không tự đổi giọng bạn đã chọn.</p><button class="button full-width" id="test-browser">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
+  refreshBrowserVoiceOptions();
+  $('browser-voice').onchange=e=>{stopPlayback();rememberBrowserVoice(browserVoices().find(v=>v.voiceURI===e.target.value));};
+  $('browser-voice').onblur=refreshBrowserVoiceOptions;
+  $('speech-rate').oninput=e=>{prefs.rate=+e.target.value;$('rate-label').textContent=`${prefs.rate}×`;setRate();};
+  $('test-browser').onclick=()=>{
+    const voice=browserVoices().find(v=>v.voiceURI===$('browser-voice').value);
+    if(!voice)return notify('Giọng này chưa được trình duyệt nạp. Hãy chờ một chút hoặc chọn giọng khác.');
+    stopPlayback();rememberBrowserVoice(voice);
+    const utter=new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.');utter.voice=voice;utter.lang=voice.lang;utter.rate=prefs.rate;utter.volume=prefs.volume;speechSynthesis.speak(utter);
+  };
+}
+function updateVoiceLabel() { $('player-voice-name').textContent=chosenBrowserVoice()?.name || prefs.browserVoiceName || 'Chọn giọng trình duyệt'; }
 
 function setRate() { persistPrefs(); $('cycle-rate').textContent = `${prefs.rate}×`; if (state.audio) state.audio.playbackRate = prefs.rate; }
 function playerState(playing, busy = false) { state.playing = playing; state.busy = busy; $('play').innerHTML = icon(busy ? 'loader-circle' : playing ? 'pause' : 'play', busy ? 'spin' : ''); $('play').setAttribute('aria-label', busy ? 'Hủy tạo audio' : playing ? 'Tạm dừng' : 'Bắt đầu nghe'); drawIcons(); }
 function stopPlayback() {
-  state.deviceSession=null;
+  state.browserSession=null;
   state.token++; state.controller?.abort(); state.controller = null; previewAudio?.pause(); state.audio?.pause();
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   state.audio = null; state.alignment = null; state.cached = null; state.highlighted = ''; state.selection = null;
@@ -261,9 +287,9 @@ function highlight(position) {
 async function togglePlayback() {
   if (!state.current) return;
   if (state.busy) { stopPlayback(); $('player-message').textContent = 'Đã dừng audio.'; return; }
-  if (state.playing) { freezeDevicePosition(); state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
+  if (state.playing) { freezeBrowserPosition(); state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
   if (state.audio) { await state.audio.play(); playerState(true); return; }
-  if (prefs.provider === 'device' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { if(state.deviceSession)state.deviceSession.anchoredAt=performance.now(); speechSynthesis.resume(); playerState(true); return; }
+  if (prefs.provider === 'browser' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { if(state.browserSession)state.browserSession.anchoredAt=performance.now(); speechSynthesis.resume(); playerState(true); return; }
   const { contents, text, entries } = await chapterIndex();
   let start = 0, end = text.length;
   if (state.selection?.chapter === state.chapter) { start = state.selection.start; end = state.selection.end; }
@@ -277,37 +303,38 @@ async function togglePlayback() {
   const token = ++state.token; playerState(false, true);
   try {
       if (!('speechSynthesis' in window)) throw new Error('Trình duyệt không hỗ trợ giọng thiết bị.');
-      const voice=speechSynthesis.getVoices().find(v=>v.voiceURI===prefs.deviceVoice && v.lang.toLowerCase().startsWith('vi')) || speechSynthesis.getVoices().find(v=>v.lang.toLowerCase().startsWith('vi')); if(!voice)throw new Error('Thiết bị chưa có giọng tiếng Việt. Hãy cài giọng Việt hoặc thử trình duyệt khác.');
-      state.deviceSession={text,chapter:contents.sectionIndex,end,selectionOnly,position:start,anchor:start,anchoredAt:performance.now(),timeline:speechTimeline(text,prefs.rate),scale:1};
+      const voice=chosenBrowserVoice();if(!voice)throw new Error('Giọng đã chọn chưa được trình duyệt nạp. Hãy mở Giọng đọc để chọn hoặc chờ giọng nạp xong.');
+      rememberBrowserVoice(voice);
+      state.browserSession={text,chapter:contents.sectionIndex,end,selectionOnly,position:start,anchor:start,anchoredAt:performance.now(),timeline:speechTimeline(text,prefs.rate),scale:1};
       const utter = new SpeechSynthesisUtterance(state.speechText); utter.voice = voice; utter.lang = utter.voice?.lang || 'vi-VN'; utter.rate = prefs.rate; utter.volume = prefs.volume;
-      utter.onboundary = e => { if (token === state.token) { const session=state.deviceSession;session.position=session.anchor=state.base+e.charIndex;session.anchoredAt=performance.now();const estimate=timeAtOffset(session.timeline,session.position)-timeAtOffset(session.timeline,state.base);if(estimate>.5 && e.elapsedTime>.1)session.scale=Math.max(.4,Math.min(3,e.elapsedTime/estimate)); highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
-      utter.onend = safely(() => completeChapter(token, selectionOnly)); utter.onerror = e => { if (token === state.token && !['canceled','interrupted'].includes(e.error)) { stopPlayback(); notify('Giọng thiết bị bị gián đoạn. Hãy nhấn phát để thử lại.'); } };
-      utter.onstart = () => { if (token === state.token) {state.deviceSession.anchoredAt=performance.now();playerState(true);} };
-      speechSynthesis.speak(utter); playerState(true); $('player-message').textContent = 'Giọng thiết bị · Theo vết khi trình duyệt cung cấp mốc đọc';
+      utter.onboundary = e => { if (token === state.token) { const session=state.browserSession;session.position=session.anchor=state.base+e.charIndex;session.anchoredAt=performance.now();const estimate=timeAtOffset(session.timeline,session.position)-timeAtOffset(session.timeline,state.base);if(estimate>.5 && e.elapsedTime>.1)session.scale=Math.max(.4,Math.min(3,e.elapsedTime/estimate)); highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
+      utter.onend = safely(() => completeChapter(token, selectionOnly)); utter.onerror = e => { if (token === state.token && !['canceled','interrupted'].includes(e.error)) { stopPlayback(); notify('Giọng trình duyệt bị gián đoạn. Hãy nhấn phát để thử lại.'); } };
+      utter.onstart = () => { if (token === state.token) {state.browserSession.anchoredAt=performance.now();playerState(true);} };
+      speechSynthesis.speak(utter); playerState(true); $('player-message').textContent = 'Giọng trình duyệt · Theo vết khi trình duyệt cung cấp mốc đọc';
   } catch (error) { if (token === state.token) { stopPlayback(); $('player-message').textContent = 'Chưa phát audio'; if (error.name !== 'AbortError') throw error; } }
 }
-function devicePosition(session=state.deviceSession) {
+function browserPosition(session=state.browserSession) {
   if(!session)return 0;
   const elapsed=state.playing?(performance.now()-session.anchoredAt)/1000:0;
   return Math.min(session.end,offsetAtTime(session.timeline,timeAtOffset(session.timeline,session.anchor)+elapsed/session.scale));
 }
-function freezeDevicePosition() {
-  if(state.deviceSession){state.deviceSession.position=state.deviceSession.anchor=devicePosition();state.deviceSession.anchoredAt=performance.now();}
+function freezeBrowserPosition() {
+  if(state.browserSession){state.browserSession.position=state.browserSession.anchor=browserPosition();state.browserSession.anchoredAt=performance.now();}
 }
 async function skipSeconds(seconds) {
   if(state.audio){state.audio.currentTime=Math.max(0,Math.min(state.audio.duration || Infinity,state.audio.currentTime+seconds));return;}
-  const session=state.deviceSession;
+  const session=state.browserSession;
   if(!session)return notify('Nhấn phát trước để dùng nút lùi/tiến 5 giây.');
-  const wasPlaying=state.playing,position=devicePosition(session);
+  const wasPlaying=state.playing,position=browserPosition(session);
   const target=Math.max(0,Math.min(session.end,offsetAtTime(session.timeline,timeAtOffset(session.timeline,position)+seconds/session.scale)));
   const atEnd=target>=session.end;
   stopPlayback();state.chapter=session.chapter;state.speechChapter=session.chapter;
   state.current.listen={chapter:session.chapter,offset:target};saveBook();
   const lastWord=session.timeline.filter(point=>point.offset<session.end).at(-1)?.offset || 0;
   state.selection={start:atEnd?lastWord:target,end:session.end,chapter:session.chapter,continueReading:!session.selectionOnly};
-  state.deviceSession={...session,position:target,anchor:target,anchoredAt:performance.now()};
+  state.browserSession={...session,position:target,anchor:target,anchoredAt:performance.now()};
   highlight(atEnd?lastWord:target);$('elapsed').textContent='~'+formatTime(timeAtOffset(session.timeline,target)*session.scale);
-  $('player-message').textContent=atEnd?'Đã đến cuối đoạn đọc · Giữ nguyên chương hiện tại.':`${seconds<0?'Lùi':'Tiến'} khoảng 5 giây · Giọng thiết bị`;
+  $('player-message').textContent=atEnd?'Đã đến cuối đoạn đọc · Giữ nguyên chương hiện tại.':`${seconds<0?'Lùi':'Tiến'} khoảng 5 giây · Giọng trình duyệt`;
   if(wasPlaying && !atEnd)await togglePlayback();
 }
 async function completeChapter(token, selectionOnly) {
@@ -359,5 +386,5 @@ document.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('
 document.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) $('drop-overlay').hidden = true; });
 document.addEventListener('drop', safely(async e => { e.preventDefault(); dragDepth = 0; $('drop-overlay').hidden = true; if (e.dataTransfer.files.length) await importBooks([...e.dataTransfer.files]); }));
 window.addEventListener('pagehide', () => { previewAudio?.pause(); state.audio?.pause(); if ('speechSynthesis' in window) speechSynthesis.cancel(); flushRecord().catch(() => {}); });
-applyTheme(); setRate(); drawIcons(); refreshLibrary().catch(error => { fail(error); $('shelf').innerHTML = '<p>Không truy cập được bộ nhớ. Hãy bật lưu trữ cho trang này rồi tải lại.</p>'; });
-if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { if ($('panel').open && $('device-voice')) voicesPanel(); };
+applyTheme(); setRate(); updateVoiceLabel(); drawIcons(); refreshLibrary().catch(error => { fail(error); $('shelf').innerHTML = '<p>Không truy cập được bộ nhớ. Hãy bật lưu trữ cho trang này rồi tải lại.</p>'; });
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { browserVoices(); updateVoiceLabel(); if ($('panel').open)refreshBrowserVoiceOptions(); };

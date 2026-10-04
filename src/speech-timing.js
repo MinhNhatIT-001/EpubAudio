@@ -1,4 +1,4 @@
-// Device TTS has no seek API. This index estimates spoken time at word boundaries.
+// Browser TTS has no seek API. This index estimates spoken time at word boundaries.
 export function speechTimeline(text, rate=1) {
   const points=[];let time=0;
   for(const match of text.matchAll(/\S+/gu)) {

@@ -8,7 +8,7 @@ Web đọc EPUB bằng tiếng Việt, giữ HTML/CSS gốc của sách. Font v�
 - Mục lục, tìm kiếm, hai trang trên màn hình rộng, một trang trên điện thoại.
 - Menu phủ không làm xê dịch chữ; tùy chỉnh font, cỡ chữ, giãn dòng và nền.
 - Nhấp đúp bằng chuột trái trên chữ để đọc từ đầu cụm dấu câu đó và tiếp tục; có thông báo cụm đã chọn.
-- Giọng Việt của thiết bị, điều chỉnh tốc độ/âm lượng, hẹn giờ, tự chuyển trang/chương.
+- Giọng Việt của trình duyệt, điều chỉnh tốc độ/âm lượng, hẹn giờ, tự chuyển trang/chương.
 - Theo vết theo cụm dấu câu khi trình duyệt cung cấp mốc đọc.
 
 ## Chạy và kiểm tra
@@ -28,6 +28,6 @@ Repo `MinhNhatIT-001/EpubAudio`, framework Vite, build `pnpm build`, output `dis
 
 ## Giới hạn
 
-Giọng thiết bị phụ thuộc hệ điều hành/trình duyệt; danh sách chỉ gồm giọng Việt. Theo vết và đọc nền cũng phụ thuộc trình duyệt. Dữ liệu sách ở IndexedDB, chưa đồng bộ đám mây. Không hỗ trợ DRM hoặc OCR chữ trong ảnh. Script và popup của EPUB bị vô hiệu hóa.
+Giọng trình duyệt phụ thuộc hệ điều hành/trình duyệt; danh sách chỉ gồm giọng Việt. Theo vết và đọc nền cũng phụ thuộc trình duyệt. Dữ liệu sách ở IndexedDB, chưa đồng bộ đám mây. Không hỗ trợ DRM hoặc OCR chữ trong ảnh. Script và popup của EPUB bị vô hiệu hóa.
 
-Nút lùi/tiến 5 giây dùng thời gian ước tính cho giọng thiết bị (Web Speech không có seek API), hiệu chỉnh từ boundary nếu có. Tua giữ trạng thái phát/tạm dừng và không thay đổi EPUB.
+Nút lùi/tiến 5 giây dùng thời gian ước tính cho giọng trình duyệt (Web Speech không có seek API), hiệu chỉnh từ boundary nếu có. Tua giữ trạng thái phát/tạm dừng và không thay đổi EPUB.

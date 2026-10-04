@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {speechTimeline,timeAtOffset,offsetAtTime} from '../src/speech-timing.js';
-test('Device speech timeline handles Vietnamese, punctuation and rate',()=>{
+test('Browser speech timeline handles Vietnamese, punctuation and rate',()=>{
  const text='Chào bạn, hôm nay đẹp trời.';
  const normal=speechTimeline(text),fast=speechTimeline(text,2);
  assert.equal(normal.at(-1).offset,text.length);assert.equal(fast.at(-1).time,normal.at(-1).time/2);
