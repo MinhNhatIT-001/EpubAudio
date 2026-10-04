@@ -4,6 +4,7 @@ import { createIcons, BookOpen, Headphones, Plus, Library, Bookmark, Settings2, 
 import { indexText, phraseRange, textPoint, domRange, offsetOf } from './text.js';
 import { demoBook } from './demo.js';
 import { speechTimeline, timeAtOffset, offsetAtTime } from './speech-timing.js';
+import { generateVtts, cancelVtts, vietnameseFemaleVoices } from './vtts.js';
 import './style.css';
 
 const $ = (id) => document.getElementById(id);
@@ -14,7 +15,7 @@ const drawIcons = () => createIcons({ icons, attrs: { 'stroke-width': 1.6 } });
 let prefs;
 try { prefs = JSON.parse(localStorage.getItem('epubaudio-prefs') || '{}'); } catch { prefs = {}; }
 prefs = { theme: 'original', font: '', size: 19, line: 1.8, rate: 1, volume: 1, provider: 'browser', follow: true, auto: true, ...prefs };
-prefs.browserVoice=prefs.browserVoice || prefs.deviceVoice; delete prefs.deviceVoice; prefs.provider='browser'; delete prefs.voice; delete prefs.voiceName; delete prefs.voiceCatalogVersion; delete prefs.stability;
+prefs.browserVoice=prefs.browserVoice || prefs.deviceVoice; delete prefs.deviceVoice; prefs.provider='browser'; prefs.vttsVoice=['SF','NF'].includes(prefs.vttsVoice)?prefs.vttsVoice:'SF'; delete prefs.voice; delete prefs.voiceName; delete prefs.voiceCatalogVersion; delete prefs.stability;
 const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null, browserSession: null, browserVoices: [] };
 let sleepTimer, toastTimer, saveTimer, previewAudio;
 const objectUrls = new Set();
@@ -233,12 +234,12 @@ function rememberBrowserVoice(voice) {
   prefs.voiceSource=activeVoiceSource();prefs.voiceChoices={...prefs.voiceChoices,[prefs.voiceSource]:{uri:voice.voiceURI,name:voice.name}};persistPrefs();updateVoiceLabel();
 }
 function refreshVoiceSourceButtons(){
-  const source=activeVoiceSource();for(const name of ['browser','device']){const button=$('source-'+name);if(button){button.classList.toggle('primary',source===name);button.setAttribute('aria-pressed',String(source===name));}}
-  if($('voice-source-note'))$('voice-source-note').textContent=source==='browser'?'Giọng trực tuyến do trình duyệt cung cấp. Nếu không có giọng Việt, web sẽ không tự chuyển sang giọng thiết bị.':'Giọng tiếng Việt có sẵn trên máy, được trình duyệt cung cấp.';
+  const source=activeVoiceSource();for(const name of ['vtts','browser','device']){const button=$('source-'+name);if(button){button.classList.toggle('primary',source===name);button.setAttribute('aria-pressed',String(source===name));}}
+  if($('voice-source-note'))$('voice-source-note').textContent=source==='vtts'?'Hai giọng nữ tiếng Việt · Audio tạo ngay trên máy. Lần đầu tải khoảng 173 MB; không cần API key.':source==='browser'?'Giọng trực tuyến do trình duyệt cung cấp. Nếu không có giọng Việt, web sẽ không tự chuyển sang giọng thiết bị.':'Giọng tiếng Việt có sẵn trên máy, được trình duyệt cung cấp.';
 }
 function refreshBrowserVoiceOptions() {
   const select=$('browser-voice');if(!select || document.activeElement===select)return;
-  const list=sourceVoices(),choice=sourceChoice(),selected=choice.uri || list[0]?.voiceURI || '';
+  const isVtts=activeVoiceSource()==='vtts'; const list=isVtts?vietnameseFemaleVoices.map(v=>({voiceURI:v.id,name:v.name,lang:'vi-VN'})):sourceVoices(),choice=isVtts?{uri:prefs.vttsVoice}:sourceChoice(),selected=choice.uri || list[0]?.voiceURI || '';
   refreshVoiceSourceButtons();
   const signature=JSON.stringify([activeVoiceSource(),list.map(v=>[v.voiceURI,v.name,v.lang]),selected]);
   if(select.dataset.signature===signature)return;
@@ -248,26 +249,34 @@ function refreshBrowserVoiceOptions() {
   select.value=selected;select.dataset.signature=signature;
 }
 function voicesPanel() {
-  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn và nghe thử giọng mà trình duyệt cung cấp. Giọng đã chọn được giữ khi danh sách cập nhật.</p><div class="provider-options"><button id="source-browser" class="button" aria-pressed="false">Giọng trình duyệt</button><button id="source-device" class="button" aria-pressed="false">Giọng thiết bị</button></div><p id="voice-source-note" class="small-note"></p><label class="field-label" for="browser-voice">CHỌN GIỌNG TIẾNG VIỆT</label><select id="browser-voice" class="full-width"></select><p class="small-note">Danh sách có thể nạp thêm giọng sau khi mở trang. Web không tự đổi giọng bạn đã chọn.</p><button class="button full-width" id="test-browser">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
+  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn giọng nữ Việt V-TTS hoặc giọng sẵn có trên trình duyệt và thiết bị.</p><div class="provider-options"><button id="source-vtts" class="button" aria-pressed="false">V-TTS · Nữ Việt</button><button id="source-browser" class="button" aria-pressed="false">Giọng trình duyệt</button><button id="source-device" class="button" aria-pressed="false">Giọng thiết bị</button></div><p id="voice-source-note" class="small-note"></p><label class="field-label" for="browser-voice">CHỌN GIỌNG TIẾNG VIỆT</label><select id="browser-voice" class="full-width"></select><p class="small-note">V-TTS miễn phí cho mục đích phi thương mại. Văn bản sách được xử lý trên máy bạn.</p><button class="button full-width" id="test-browser">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
   browserVoices();refreshVoiceSourceButtons();refreshBrowserVoiceOptions();
-  for(const source of ['browser','device'])$('source-'+source).onclick=()=>{stopPlayback();prefs.voiceSource=source;prefs.voiceChoices ||= {};persistPrefs();$('browser-voice').dataset.signature='';refreshVoiceSourceButtons();refreshBrowserVoiceOptions();updateVoiceLabel();};
-  $('browser-voice').onchange=e=>{stopPlayback();rememberBrowserVoice(sourceVoices().find(v=>v.voiceURI===e.target.value));};
+  for(const source of ['vtts','browser','device'])$('source-'+source).onclick=()=>{stopPlayback();prefs.voiceSource=source;prefs.voiceChoices ||= {};persistPrefs();$('browser-voice').dataset.signature='';refreshVoiceSourceButtons();refreshBrowserVoiceOptions();updateVoiceLabel();};
+  $('browser-voice').onchange=e=>{stopPlayback();if(activeVoiceSource()==='vtts'){prefs.vttsVoice=e.target.value;persistPrefs();updateVoiceLabel();}else rememberBrowserVoice(sourceVoices().find(v=>v.voiceURI===e.target.value));};
   $('browser-voice').onblur=refreshBrowserVoiceOptions;
   $('speech-rate').oninput=e=>{prefs.rate=+e.target.value;$('rate-label').textContent=`${prefs.rate}×`;setRate();};
-  $('test-browser').onclick=()=>{
+  $('test-browser').onclick=safely(async()=>{
+    if(activeVoiceSource()==='vtts'){
+      stopPlayback();const token=state.token,button=$('test-browser');button.disabled=true;
+      const status=$('voice-source-note');
+      try{const result=await generateVtts('Chiều xuống, nắng nhẹ trải trên những tán cây. Hãy cùng lắng nghe câu chuyện hôm nay nhé.',prefs.vttsVoice,0,message=>{if(token===state.token)status.textContent=message;});
+        if(token!==state.token || !$('panel').open)return;
+        const url=URL.createObjectURL(result.blob);previewAudio=new Audio(url);previewAudio.playbackRate=prefs.rate;previewAudio.volume=prefs.volume;previewAudio.onended=()=>URL.revokeObjectURL(url);await previewAudio.play();status.textContent='Đang nghe thử · '+vietnameseFemaleVoices.find(v=>v.id===prefs.vttsVoice).name;
+      }catch(error){if(error.name!=='AbortError')throw error;}finally{button.disabled=false;}return;
+    }
     const voice=sourceVoices().find(v=>v.voiceURI===$('browser-voice').value);
     if(!voice)return notify('Giọng này chưa được trình duyệt nạp. Hãy chờ một chút hoặc chọn giọng khác.');
     stopPlayback();rememberBrowserVoice(voice);
     const utter=new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.');utter.voice=voice;utter.lang=voice.lang;utter.rate=prefs.rate;utter.volume=prefs.volume;speechSynthesis.speak(utter);
-  };
+  });
 }
-function updateVoiceLabel() { $('player-voice-name').textContent=chosenBrowserVoice()?.name || sourceChoice().name || (activeVoiceSource()==='browser'?'Chọn giọng trình duyệt':'Chọn giọng thiết bị'); }
+function updateVoiceLabel() { for(const id of ['rewind-five','forward-five']){const button=$(id),vtts=activeVoiceSource()==='vtts';if(button){button.querySelector('span').textContent=vtts?'5s':'~5s';button.title=(id==='rewind-five'?'Lùi':'Tiến')+' 5 giây'+(vtts?'':' (ước tính)');}} $('player-voice-name').textContent=activeVoiceSource()==='vtts'?('V-TTS · '+vietnameseFemaleVoices.find(v=>v.id===prefs.vttsVoice).name):chosenBrowserVoice()?.name || sourceChoice().name || (activeVoiceSource()==='browser'?'Chọn giọng trình duyệt':'Chọn giọng thiết bị'); }
 
 function setRate() { persistPrefs(); $('cycle-rate').textContent = `${prefs.rate}×`; if (state.audio) state.audio.playbackRate = prefs.rate; }
 function playerState(playing, busy = false) { state.playing = playing; state.busy = busy; $('play').innerHTML = icon(busy ? 'loader-circle' : playing ? 'pause' : 'play', busy ? 'spin' : ''); $('play').setAttribute('aria-label', busy ? 'Hủy tạo audio' : playing ? 'Tạm dừng' : 'Bắt đầu nghe'); drawIcons(); }
 function stopPlayback() {
-  state.browserSession=null;
-  state.token++; state.controller?.abort(); state.controller = null; previewAudio?.pause(); state.audio?.pause();
+  state.browserSession=null;cancelVtts();
+  state.token++; state.controller?.abort(); state.controller = null; previewAudio?.pause(); if(previewAudio?.src.startsWith('blob:'))URL.revokeObjectURL(previewAudio.src);previewAudio=null; state.audio?.pause();
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   state.audio = null; state.alignment = null; state.cached = null; state.highlighted = ''; state.selection = null;
   if (state.audioUrl) URL.revokeObjectURL(state.audioUrl); state.audioUrl = null;
@@ -298,7 +307,7 @@ async function togglePlayback() {
   if (!state.current) return;
   if (state.busy) { stopPlayback(); $('player-message').textContent = 'Đã dừng audio.'; return; }
   if (state.playing) { freezeBrowserPosition(); state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
-  if (state.audio) { await state.audio.play(); playerState(true); return; }
+  if (state.audio) { const token=state.token;state.audio.onended=safely(()=>completeChapter(token,state.audioSelectionOnly));await state.audio.play(); playerState(true); return; }
   if (prefs.provider === 'browser' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { if(state.browserSession)state.browserSession.anchoredAt=performance.now(); speechSynthesis.resume(); playerState(true); return; }
   const { contents, text, entries } = await chapterIndex();
   let start = 0, end = text.length;
@@ -312,6 +321,15 @@ async function togglePlayback() {
   state.base = start; state.speechText = text.slice(state.base,end); state.speechChapter = contents.sectionIndex;
   const token = ++state.token; playerState(false, true);
   try {
+      if(activeVoiceSource()==='vtts'){
+        $('player-message').textContent='Đang chuẩn bị V-TTS…';
+        const result=await generateVtts(state.speechText,prefs.vttsVoice,state.base,message=>{if(token===state.token)$('player-message').textContent=message;});
+        if(token!==state.token)return;
+        state.audioUrl=URL.createObjectURL(result.blob);const audio=state.audio=new Audio(state.audioUrl);state.alignment=result.cues;state.audioSelectionOnly=selectionOnly;audio.playbackRate=prefs.rate;audio.volume=prefs.volume;
+        const sync=()=>{if(token!==state.token)return;const duration=audio.duration;if(Number.isFinite(duration)){$('seek').disabled=false;$('seek').value=duration?audio.currentTime/duration*100:0;$('duration').textContent=formatTime(duration);}$('elapsed').textContent=formatTime(audio.currentTime);const cue=state.alignment?.findLast(c=>c.start<=audio.currentTime);if(cue)highlight(cue.offset);};
+        audio.onloadedmetadata=sync;audio.ontimeupdate=sync;audio.onseeked=sync;audio.onended=safely(()=>completeChapter(token,selectionOnly));audio.onerror=()=>{if(token===state.token){stopPlayback();notify('Không phát được audio V-TTS. Hãy thử lại.');}};
+        await audio.play();playerState(true);updateVoiceLabel();$('player-message').textContent='V-TTS · Theo vết từng cụm · Audio tạo trên máy';sync();return;
+      }
       if (!('speechSynthesis' in window)) throw new Error('Trình duyệt không hỗ trợ giọng thiết bị.');
       const voice=chosenBrowserVoice();if(!voice)throw new Error('Giọng đã chọn chưa được trình duyệt nạp. Hãy mở Giọng đọc để chọn hoặc chờ giọng nạp xong.');
       rememberBrowserVoice(voice);
@@ -332,7 +350,7 @@ function freezeBrowserPosition() {
   if(state.browserSession){state.browserSession.position=state.browserSession.anchor=browserPosition();state.browserSession.anchoredAt=performance.now();}
 }
 async function skipSeconds(seconds) {
-  if(state.audio){state.audio.currentTime=Math.max(0,Math.min(state.audio.duration || Infinity,state.audio.currentTime+seconds));return;}
+  if(state.audio){const audio=state.audio;const target=Math.max(0,Math.min(Number.isFinite(audio.duration)?audio.duration:audio.currentTime,audio.currentTime+seconds));if(target>=audio.duration){audio.pause();playerState(false);audio.onended=null;$('player-message').textContent='Đã đến cuối audio · Giữ nguyên chương hiện tại.';}audio.currentTime=target;return;}
   const session=state.browserSession;
   if(!session)return notify('Nhấn phát trước để dùng nút lùi/tiến 5 giây.');
   const wasPlaying=state.playing,position=browserPosition(session);
@@ -384,17 +402,17 @@ $('next-page').onclick = safely(async () => { stopPlayback(); state.current.list
 $('prev-chapter').onclick = safely(() => changeChapter(-1)); $('next-chapter').onclick = safely(() => changeChapter(1));
 $('cycle-rate').onclick = () => { const speeds = [.75,1,1.25,1.5,1.75,2]; prefs.rate = speeds[(speeds.indexOf(prefs.rate) + 1) % speeds.length]; setRate(); };
 $('volume').oninput = e => { prefs.volume = +e.target.value; persistPrefs(); if (state.audio) state.audio.volume = prefs.volume; };
-$('seek').oninput = e => { if (state.audio && Number.isFinite(state.audio.duration)) state.audio.currentTime = +e.target.value / 100 * state.audio.duration; };
+$('seek').oninput = e => { if (state.audio && Number.isFinite(state.audio.duration)) {const audio=state.audio;if(+e.target.value>=100){audio.pause();audio.onended=null;playerState(false);}audio.currentTime = +e.target.value / 100 * audio.duration;} };
 $('sleep-button').onclick = sleepPanel;
-$('close-panel').onclick = () => { previewAudio?.pause(); $('panel').close(); };
+$('close-panel').onclick = () => { if(!state.current || !state.busy)cancelVtts();previewAudio?.pause(); $('panel').close(); };
 $('panel').addEventListener('click', e => { if (e.target === $('panel')) { const rect = $('panel').getBoundingClientRect(); if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) $('panel').close(); } });
-$('panel').addEventListener('close', () => previewAudio?.pause());
+$('panel').addEventListener('close', () => {if(!state.busy)cancelVtts();previewAudio?.pause();});
 window.addEventListener('keydown', keyboard);
 let dragDepth = 0;
 document.addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragDepth++; $('drop-overlay').hidden = false; } });
 document.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
 document.addEventListener('dragleave', () => { dragDepth--; if (dragDepth <= 0) $('drop-overlay').hidden = true; });
 document.addEventListener('drop', safely(async e => { e.preventDefault(); dragDepth = 0; $('drop-overlay').hidden = true; if (e.dataTransfer.files.length) await importBooks([...e.dataTransfer.files]); }));
-window.addEventListener('pagehide', () => { previewAudio?.pause(); state.audio?.pause(); if ('speechSynthesis' in window) speechSynthesis.cancel(); flushRecord().catch(() => {}); });
+window.addEventListener('pagehide', () => { previewAudio?.pause(); if(previewAudio?.src.startsWith('blob:'))URL.revokeObjectURL(previewAudio.src);previewAudio=null; state.audio?.pause(); if ('speechSynthesis' in window) speechSynthesis.cancel(); flushRecord().catch(() => {}); });
 applyTheme(); setRate(); updateVoiceLabel(); drawIcons(); refreshLibrary().catch(error => { fail(error); $('shelf').innerHTML = '<p>Không truy cập được bộ nhớ. Hãy bật lưu trữ cho trang này rồi tải lại.</p>'; });
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { browserVoices(); updateVoiceLabel(); if ($('panel').open)refreshBrowserVoiceOptions(); };
