@@ -303,11 +303,12 @@ async function skipSeconds(seconds) {
   const atEnd=target>=session.end;
   stopPlayback();state.chapter=session.chapter;state.speechChapter=session.chapter;
   state.current.listen={chapter:session.chapter,offset:target};saveBook();
-  state.selection={start:target,end:session.end,chapter:session.chapter,continueReading:!session.selectionOnly};
+  const lastWord=session.timeline.filter(point=>point.offset<session.end).at(-1)?.offset || 0;
+  state.selection={start:atEnd?lastWord:target,end:session.end,chapter:session.chapter,continueReading:!session.selectionOnly};
   state.deviceSession={...session,position:target,anchor:target,anchoredAt:performance.now()};
-  highlight(target);$('elapsed').textContent='~'+formatTime(timeAtOffset(session.timeline,target)*session.scale);
-  $('player-message').textContent=atEnd?'Đã đến cuối đoạn đọc.':`${seconds<0?'Lùi':'Tiến'} khoảng 5 giây · Giọng thiết bị`;
-  if(wasPlaying){if(atEnd)await completeChapter(state.token,session.selectionOnly);else await togglePlayback();}
+  highlight(atEnd?lastWord:target);$('elapsed').textContent='~'+formatTime(timeAtOffset(session.timeline,target)*session.scale);
+  $('player-message').textContent=atEnd?'Đã đến cuối đoạn đọc · Giữ nguyên chương hiện tại.':`${seconds<0?'Lùi':'Tiến'} khoảng 5 giây · Giọng thiết bị`;
+  if(wasPlaying && !atEnd)await togglePlayback();
 }
 async function completeChapter(token, selectionOnly) {
   if (token !== state.token) return;
