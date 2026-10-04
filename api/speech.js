@@ -1,8 +1,9 @@
+import { elevenKey } from '../server/eleven-key.js';
 import { providerError } from '../server/eleven-errors.js';
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Phương thức không được hỗ trợ.' });
-  const key = req.headers['x-elevenlabs-key'];
+  const key = elevenKey(req);
   if (typeof key !== 'string' || !key.trim()) return res.status(401).json({ error: 'Hãy nhập khóa ElevenLabs cá nhân.' });
   const { text, voice, stability = 0.5 } = req.body || {};
   if (typeof text !== 'string' || !text.trim() || typeof voice !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(voice)) return res.status(400).json({ error: 'Văn bản hoặc giọng đọc không hợp lệ.' });
@@ -10,7 +11,7 @@ export default async function handler(req, res) {
   try {
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/with-timestamps`, {
       method: 'POST', headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5', voice_settings: { stability: Math.max(0, Math.min(1, Number(stability) || 0)), similarity_boost: 0.75 } }),
+      body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5', language_code: 'vi', voice_settings: { stability: Math.max(0, Math.min(1, Number(stability) || 0)), similarity_boost: 0.75 } }),
       signal: AbortSignal.timeout(55000)
     });
     if (!response.ok) return res.status(response.status).json({ error: await providerError(response, 'speech') });

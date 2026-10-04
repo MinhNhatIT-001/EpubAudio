@@ -44,3 +44,17 @@ export function offsetOf(entries, node, offset = 0) {
   const entry = entries.find(x => x.node === node);
   return entry ? entry.start + offset : 0;
 }
+
+// Phrase boundaries are an audio index only; book markup remains untouched.
+export function phraseRange(text, position) {
+  const boundary = index => /[.,;:!?…\n\r]/.test(text[index]) && !(text[index] === '.' && /\d/.test(text[index - 1] || '') && /\d/.test(text[index + 1] || ''));
+  let point = Math.max(0, Math.min(position, text.length - 1));
+  while (point < text.length - 1 && /\s/.test(text[point])) point++;
+  let start = point, end = point;
+  while (start > 0 && !boundary(start - 1)) start--;
+  while (end < text.length && !boundary(end)) end++;
+  if (end < text.length) end++;
+  while (end < text.length && /[.!?…“”"’')\]]/.test(text[end])) end++;
+  while (start < end && /\s/.test(text[start])) start++;
+  return [start, end];
+}

@@ -4,6 +4,7 @@ export async function providerError(response, operation) {
   const candidate = data?.detail?.status || data?.error?.code || data?.code;
   const code = typeof candidate === 'string' && /^[a-z_]{1,64}$/.test(candidate) ? candidate : '';
   if (['missing_permissions', 'missing_permission', 'insufficient_permissions'].includes(code)) {
+    if(operation==='add')return 'Khóa thiếu quyền Voices: Write để thêm giọng vào tài khoản.';
     return operation === 'voices'
       ? 'Khóa được nhận nhưng thiếu quyền Voices: Read. Trong ElevenLabs, mở API Keys → Edit và bật quyền đọc giọng.'
       : 'Khóa thiếu quyền Text to Speech: Access. Trong ElevenLabs, mở API Keys → Edit và bật quyền tạo audio.';

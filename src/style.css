@@ -13,3 +13,23 @@ body[data-theme=dark].reading{--paper:#222822;--surface:#2b322a;--border:#3d4538
 @media(prefers-reduced-motion:reduce){*{animation-duration:0.01ms!important;transition:none!important}}
 
 @media(max-width:580px){.page-turn{padding:0}.page-turn svg{width:14px;height:14px}}
+
+/* The reading drawer overlays a stable full-width spread, never pushes it. */
+body.reading main{margin-left:0}
+body.reading .sidebar{display:flex;top:0;bottom:0;left:0;width:245px;height:100dvh;flex-direction:column;padding:26px 22px;transform:translateX(-100%);transition:transform .2s;z-index:30;background:#eceee4}
+body.reading.sidebar-open .sidebar{transform:translateX(0)}
+body.reading .sidebar .brand{display:flex;justify-content:flex-start}
+body.reading .brand>span+span,body.reading .sidebar-label,body.reading .quiet-card,body.reading .local-note{display:block}
+body.reading .sidebar nav{display:block;width:100%;margin-top:0}
+body.reading .sidebar .nav-item{display:flex;flex-direction:row;justify-content:flex-start;width:100%;gap:12px;padding:13px 12px;margin-bottom:7px}
+body.reading .sidebar .nav-item>span{display:block;font-size:13px}
+body.reading .sidebar-bottom{width:100%;margin-top:auto}
+#sidebar-backdrop{position:fixed;inset:0;background:#27332033;z-index:25}
+body.reading .reader-top{height:62px;padding:0 18px}
+body.reading .reading-area{height:calc(100dvh - 162px);padding:4px 38px 26px}
+body.reading #viewer{max-width:none}
+body.reading .reading-status{bottom:7px;left:40px;right:40px}
+body.reading .player{height:100px;padding:8px 24px}
+body.reading .page-turn.prev{left:3px}
+body.reading .page-turn.next{right:3px}
+@media(max-width:580px){body.reading .reader-top{height:60px;padding:0 5px;gap:3px}body.reading .reader-title{flex:1}body.reading .reader-title strong{max-width:150px}body.reading .reader-top .icon-button{width:27px}body.reading .reading-area{height:calc(100dvh - 180px);padding:3px 21px 25px}body.reading .player{height:120px;padding:7px 12px}body.reading .page-turn.prev{left:0}body.reading .page-turn.next{right:0}}

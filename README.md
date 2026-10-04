@@ -47,3 +47,11 @@ Mỗi người dùng nhập khóa ElevenLabs cá nhân trong mục Giọng đọ
 ## Kiểm thử
 
 `pnpm test` kiểm tra tìm từ tiếng Việt, tra timestamp và kiểm tra giới hạn/khóa API. Kiểm tra trình duyệt thực hiện riêng cho import sách mẫu, chuyển trang/chương, dấu trang, theme, cache và responsive. Giọng AI thật cần khóa cá nhân để xác minh chất lượng/chi phí; không có khóa được lưu trong repo.
+
+## Kho giọng Việt và cấu hình máy chủ
+
+Trong Vercel → Project epubaudio → Settings → Environment Variables, thêm `ELEVENLABS_API_KEY` cho Production rồi Redeploy. Không đặt tiền tố VITE_, không commit khóa. Người đọc không cần nhập khóa khi máy chủ đã cấu hình; mọi audio mới dùng hạn mức của tài khoản máy chủ. Giới hạn hạn mức của khóa trong ElevenLabs nếu chia sẻ web.
+
+Voice Library được truy vấn với language=vi, chỉ hiển thị giọng có nhãn hoặc verified language tiếng Việt, có tìm kiếm, phân trang và nghe mẫu. Khi chọn, giọng được thêm vào tài khoản. Khóa cần Voices Read/Write và Text to Speech Access; Voice Library qua API yêu cầu gói trả phí của ElevenLabs. Khóa cá nhân có thể nhập riêng cho phiên đọc.
+
+Trình đọc theo vết theo cụm dấu câu, hai trang trên màn hình rộng, menu phủ không làm đổi vị trí chữ, nhấp đúp để nghe đoạn. EPUB giữ nguyên markup; ranh giới audio không chia hoặc viết lại nội dung sách.

@@ -1,19 +1,20 @@
 import ePub from 'epubjs';
 import { get, set, del, keys } from 'idb-keyval';
-import { createIcons, BookOpen, Headphones, Plus, Library, Bookmark, Settings2, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle } from 'lucide';
-import { indexText, wordRange, domRange, charAtTime, offsetOf } from './text.js';
+import { createIcons, BookOpen, Headphones, Plus, Library, Bookmark, Settings2, Menu, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle } from 'lucide';
+import { indexText, phraseRange, domRange, charAtTime, offsetOf } from './text.js';
 import { demoBook } from './demo.js';
 import './style.css';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const icons = { BookOpen, Headphones, Plus, Library, Bookmark, Settings2, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle };
+const icons = { BookOpen, Headphones, Plus, Library, Bookmark, Settings2, Menu, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle };
 const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const drawIcons = () => createIcons({ icons, attrs: { 'stroke-width': 1.6 } });
 let prefs;
 try { prefs = JSON.parse(localStorage.getItem('epubaudio-prefs') || '{}'); } catch { prefs = {}; }
 prefs = { theme: 'original', font: '', size: 19, line: 1.8, rate: 1, volume: 1, provider: 'ai', follow: true, auto: true, ...prefs };
-const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, key: '', voices: [], audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null };
+if(prefs.voiceCatalogVersion!==1){prefs.voice='';prefs.voiceName='';prefs.voiceCatalogVersion=1;}
+const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, key: '', serviceReady: false, voices: [], voicePage: 0, voiceSearch: '', audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null };
 let sleepTimer, toastTimer, saveTimer, previewAudio;
 const objectUrls = new Set();
 const urlFor = blob => { const url = URL.createObjectURL(blob); objectUrls.add(url); return url; };
@@ -25,6 +26,7 @@ $('app').innerHTML = `
   <nav><button class="nav-item active" id="nav-library">${icon('library')}<span>Thư viện</span><span class="count" id="book-count">0</span></button><button class="nav-item" id="nav-bookmarks">${icon('bookmark')}<span>Dấu trang</span></button><button class="nav-item" id="nav-voices">${icon('headphones')}<span>Giọng đọc AI</span><span class="tiny-dot"></span></button></nav>
   <div class="sidebar-bottom"><div class="quiet-card">${icon('leaf')}<p>Một trang sách.<br>Một khoảng lặng.</p><span>Dành chút thời gian cho mình.</span></div><button class="nav-item" id="nav-settings">${icon('settings-2')}<span>Tùy chỉnh đọc</span></button><div class="local-note"><span class="tiny-dot"></span> Sách lưu trên thiết bị của bạn</div></div>
 </aside>
+<button id="sidebar-backdrop" aria-label="Đóng thanh bên" hidden></button>
 <main>
   <section id="library-view">
     <header class="topbar"><span>THƯ VIỆN CÁ NHÂN</span><div class="top-actions"><span class="local-chip">${icon('check')} Riêng tư trên thiết bị</span><button class="button primary" id="import-top">${icon('plus')} Thêm sách</button></div></header>
@@ -37,7 +39,7 @@ $('app').innerHTML = `
     </div>
   </section>
   <section id="reader-view" hidden>
-    <header class="reader-top"><button class="icon-button" id="back-library" aria-label="Về thư viện">${icon('chevron-left')}</button><div class="reader-title"><strong id="reader-title"></strong><span id="chapter-title"></span></div><div class="reader-actions"><button class="icon-button" id="toc-button" aria-label="Mục lục">${icon('list')}</button><button class="icon-button" id="bookmark-button" aria-label="Thêm dấu trang">${icon('bookmark')}</button><button class="icon-button" id="reader-settings" aria-label="Tùy chỉnh đọc">${icon('settings-2')}</button></div></header>
+    <header class="reader-top"><button class="icon-button" id="toggle-sidebar" aria-label="Mở thanh bên" aria-expanded="false">${icon('menu')}</button><button class="icon-button" id="back-library" aria-label="Về thư viện">${icon('chevron-left')}</button><div class="reader-title"><strong id="reader-title"></strong><span id="chapter-title"></span></div><div class="reader-actions"><button class="icon-button" id="toc-button" aria-label="Mục lục">${icon('list')}</button><button class="icon-button" id="bookmark-button" aria-label="Thêm dấu trang">${icon('bookmark')}</button><button class="icon-button" id="reader-settings" aria-label="Tùy chỉnh đọc">${icon('settings-2')}</button></div></header>
     <div class="reading-area"><button class="page-turn prev" id="prev-page" aria-label="Trang trước">${icon('chevron-left')}</button><div id="viewer"></div><button class="page-turn next" id="next-page" aria-label="Trang sau">${icon('chevron-right')}</button><div class="reading-status"><span id="page-info"></span><span id="read-progress">0%</span></div></div>
     <div class="player"><div class="player-voice"><span class="player-avatar">${icon('headphones')}</span><div><strong id="player-voice-name">Giọng đọc AI</strong><button id="change-voice">Chọn giọng đọc ${icon('chevron-right')}</button></div></div><div class="player-main"><div class="player-controls"><button class="icon-button" id="prev-chapter" aria-label="Chương trước">${icon('skip-back')}</button><button class="play-button" id="play" aria-label="Bắt đầu nghe">${icon('play')}</button><button class="icon-button" id="next-chapter" aria-label="Chương sau">${icon('skip-forward')}</button><button class="rate-button" id="cycle-rate">1×</button></div><div class="audio-timeline"><span id="elapsed">0:00</span><input type="range" id="seek" min="0" max="100" value="0" step="0.1" aria-label="Vị trí audio" disabled/><span id="duration">--:--</span></div><div class="player-message" id="player-message">Nghe nguyên chương · Không thay đổi bố cục EPUB</div></div><div class="player-extras"><button class="icon-button" id="sleep-button" aria-label="Hẹn giờ ngủ">${icon('moon')}</button><label class="volume-control">${icon('volume-2')}<input type="range" id="volume" min="0" max="1" step="0.05" value="${prefs.volume}" aria-label="Âm lượng"/></label></div></div>
   </section>
@@ -51,7 +53,7 @@ function notify(message) { $('toast').textContent = message; $('toast').hidden =
 function fail(error) { console.error(error); notify(error?.message || 'Có lỗi xảy ra. Hãy thử lại.'); }
 function safely(fn) { return (...args) => Promise.resolve().then(() => fn(...args)).catch(fail); }
 function persistPrefs() { localStorage.setItem('epubaudio-prefs', JSON.stringify(prefs)); }
-function openPanel(title, html, eyebrow = 'KHÔNG GIAN CỦA BẠN') { $('panel-title').textContent = title; $('panel-eyebrow').textContent = eyebrow; $('panel-body').innerHTML = html; if (!$('panel').open) $('panel').showModal(); drawIcons(); }
+function openPanel(title, html, eyebrow = 'KHÔNG GIAN CỦA BẠN') { setSidebar(false); $('panel-title').textContent = title; $('panel-eyebrow').textContent = eyebrow; $('panel-body').innerHTML = html; if (!$('panel').open) $('panel').showModal(); drawIcons(); }
 function saveBook() { if (!state.current) return; clearTimeout(saveTimer); const record = state.current; saveTimer = setTimeout(() => set(`book:${record.id}`, record).catch(fail), 300); }
 
 async function refreshLibrary() {
@@ -117,10 +119,29 @@ async function openBook(id) {
   state.toc = (await state.book.loaded.navigation).toc;
   $('library-view').hidden = true; $('reader-view').hidden = false; document.body.classList.add('reading');
   $('reader-title').textContent = state.current.title;
-  state.rendition = state.book.renderTo('viewer', { width: '100%', height: '100%', spread: 'none', flow: 'paginated', allowScriptedContent: false, allowPopups: false });
+  state.rendition = state.book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto', minSpreadWidth: 900, flow: 'paginated', allowScriptedContent: false, allowPopups: false });
   state.rendition.hooks.content.register(contents => {
-    const style = contents.document.createElement('style'); style.textContent = '::highlight(epubaudio){background:#d5e3b4;color:inherit}'; contents.document.head.appendChild(style);
+    const style = contents.document.createElement('style'); style.textContent = '::highlight(epubaudio){background:#d5e3b4;color:inherit;text-decoration:underline;text-decoration-color:#8ca95e;text-decoration-thickness:2px}'; contents.document.head.appendChild(style);
     contents.document.addEventListener('keydown', keyboard);
+    contents.document.addEventListener('dblclick', safely(async event => {
+      if (event.target.closest('a,button,input,textarea,select')) return;
+      const doc = contents.document;
+      const caret = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+      const fallback = caret ? null : doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+      const node = caret?.offsetNode || fallback?.startContainer;
+      const index = indexText(doc);
+      const entry = index.entries.find(item => item.node === node);
+      if (!entry) return;
+      const point = entry.start + (caret?.offset ?? fallback?.startOffset ?? 0);
+      const block = node.parentElement?.closest('p,li,blockquote,h1,h2,h3,h4,h5,h6');
+      const entries = block ? index.entries.filter(item => block.contains(item.node)) : [];
+      const [start, end] = entries.length ? [entries[0].start, entries.at(-1).end] : phraseRange(index.text, point);
+      stopPlayback(); state.chapter = contents.sectionIndex;
+      state.selection = { start, end, chapter: contents.sectionIndex };
+      contents.window.getSelection()?.removeAllRanges();
+      $('player-message').textContent = 'Đang đọc đoạn vừa nhấn đúp…';
+      await togglePlayback();
+    }));
     contents.document.addEventListener('click', () => {
       const selection = contents.window.getSelection();
       if (!selection?.isCollapsed && selection?.rangeCount) {
@@ -148,7 +169,7 @@ async function openBook(id) {
 }
 function findToc(items, href) { for (const item of items) { if (item.href?.split('#')[0] === href?.split('#')[0]) return item; const found = findToc(item.subitems || [], href); if (found) return found; } }
 async function flushRecord() { clearTimeout(saveTimer); if (state.current) await set(`book:${state.current.id}`, state.current); }
-async function goLibrary() { stopPlayback(); await flushRecord(); $('reader-view').hidden = true; $('library-view').hidden = false; document.body.classList.remove('reading'); state.rendition?.destroy(); state.book?.destroy(); state.rendition = null; state.book = null; state.current = null; await refreshLibrary(); }
+async function goLibrary() { stopPlayback(); await flushRecord(); $('reader-view').hidden = true; $('library-view').hidden = false; document.body.classList.remove('reading'); setSidebar(false); state.rendition?.destroy(); state.book?.destroy(); state.rendition = null; state.book = null; state.current = null; await refreshLibrary(); }
 function applyTheme() {
   document.body.dataset.theme = prefs.theme;
   if (!state.rendition) return;
@@ -193,35 +214,44 @@ async function bookmarksPanel() {
 }
 
 function voicesPanel() {
-  openPanel('Một giọng đọc bạn thích', `<p class="panel-intro">Giọng AI tiếng Việt từ ElevenLabs, dùng trên mọi thiết bị. Nghe thử trước khi chọn.</p><div class="provider-options"><button id="choose-ai" class="button ${prefs.provider === 'ai' ? 'primary' : ''}">${icon('headphones')} Giọng AI</button><button id="choose-device" class="button ${prefs.provider === 'device' ? 'primary' : ''}">Giọng thiết bị</button></div>${prefs.provider === 'ai' ? `<label class="field-label" for="api-key">KHÓA ELEVENLABS CÁ NHÂN</label><div class="key-row"><input id="api-key" type="password" autocomplete="off" placeholder="Nhập khóa API của bạn" value="${esc(state.key)}"/><button class="button primary" id="connect-voices">Kết nối</button></div><p class="small-note">Khóa chỉ giữ trong bộ nhớ của phiên này, không lưu vào thư viện. Văn bản được gửi qua máy chủ EpubAudio tới ElevenLabs khi tạo audio và tính phí vào tài khoản của bạn. <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer">Lấy khóa API ↗</a></p><div id="voice-list" class="voice-list">${state.voices.length ? voiceCards() : '<div class="connection-empty">Kết nối để tải các giọng trong tài khoản của bạn.</div>'}</div><div class="range-field"><label for="stability">Độ ổn định giọng <span id="stability-label">${Math.round((prefs.stability ?? 0.5) * 100)}%</span></label><input id="stability" type="range" min="0" max="1" step="0.05" value="${prefs.stability ?? 0.5}"/></div>` : `<label class="field-label" for="device-voice">GIỌNG CÓ TRÊN THIẾT BỊ</label><select id="device-voice" class="full-width"></select><p class="small-note">Chất lượng và theo vết phụ thuộc trình duyệt. Không có phí API.</p><button class="button full-width" id="test-device">${icon('play')} Nghe thử</button>`}<div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div><p class="small-note">Giữ nguyên dấu câu và chương EPUB. Giọng AI hỗ trợ tối đa 40.000 ký tự mỗi lần; không tự chia chương.</p>`,'ĐỌC BẰNG MẮT · CẢM BẰNG TAI');
+  openPanel('Kho giọng tiếng Việt', `<p class="panel-intro">Chỉ hiển thị giọng tiếng Việt trong ElevenLabs Voice Library. Nhấn chọn để thêm giọng vào tài khoản; có thể nghe mẫu trước. Gói miễn phí không hỗ trợ Voice Library qua API.</p><div class="provider-options"><button id="choose-ai" class="button ${prefs.provider === 'ai' ? 'primary' : ''}">${icon('headphones')} Giọng AI</button><button id="choose-device" class="button ${prefs.provider === 'device' ? 'primary' : ''}">Giọng thiết bị</button></div>${prefs.provider === 'ai' ? `<details ${state.serviceReady ? '' : 'open'}><summary>${state.serviceReady ? 'Đã cấu hình dịch vụ · đổi khóa cá nhân' : 'Kết nối ElevenLabs một lần'}</summary><label class="field-label" for="api-key">KHÓA ELEVENLABS CÁ NHÂN</label><div class="key-row"><input id="api-key" type="password" autocomplete="off" placeholder="Nhập khóa API của bạn" value="${esc(state.key)}"/><button class="button primary" id="connect-voices">Kết nối</button></div><p class="small-note">Khóa chỉ giữ trong bộ nhớ của phiên này, không lưu vào thư viện. Văn bản được gửi qua máy chủ EpubAudio tới ElevenLabs khi tạo audio và tính phí vào tài khoản của bạn. <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer">Lấy khóa API ↗</a></p></details><form id="voice-search-form" class="key-row"><input id="voice-search" placeholder="Tìm giọng tiếng Việt" value="${esc(state.voiceSearch)}"/><button class="button">Tìm</button></form><div id="voice-list" class="voice-list">${state.voices.length ? voiceCards() : '<div class="connection-empty">Kết nối để tải kho giọng tiếng Việt.</div>'}</div><button id="more-voices" class="button full-width" hidden>Xem thêm giọng Việt</button><div class="range-field"><label for="stability">Độ ổn định giọng <span id="stability-label">${Math.round((prefs.stability ?? 0.5) * 100)}%</span></label><input id="stability" type="range" min="0" max="1" step="0.05" value="${prefs.stability ?? 0.5}"/></div>` : `<label class="field-label" for="device-voice">GIỌNG CÓ TRÊN THIẾT BỊ</label><select id="device-voice" class="full-width"></select><p class="small-note">Chất lượng và theo vết phụ thuộc trình duyệt. Không có phí API.</p><button class="button full-width" id="test-device">${icon('play')} Nghe thử</button>`}<div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div><p class="small-note">Giữ nguyên dấu câu và chương EPUB. Giọng AI hỗ trợ tối đa 40.000 ký tự mỗi lần; không tự chia chương.</p>`,'ĐỌC BẰNG MẮT · CẢM BẰNG TAI');
   $('choose-ai').onclick = () => { stopPlayback(); prefs.provider = 'ai'; persistPrefs(); updateVoiceLabel(); voicesPanel(); };
   $('choose-device').onclick = () => { stopPlayback(); prefs.provider = 'device'; persistPrefs(); updateVoiceLabel(); voicesPanel(); };
   $('speech-rate').oninput = e => { prefs.rate = +e.target.value; $('rate-label').textContent = `${prefs.rate}×`; setRate(); };
   if (prefs.provider === 'ai') {
     $('api-key').oninput = e => { state.key = e.target.value.trim(); };
-    $('connect-voices').onclick = safely(async () => {
-      if (!state.key) return notify('Hãy nhập khóa ElevenLabs.');
-      $('connect-voices').disabled = true;
-      try { const data = await api('/api/voices', { headers: { 'x-elevenlabs-key': state.key } }); state.voices = data.voices; if (!state.voices.some(v => v.id === prefs.voice)) prefs.voice = state.voices[0]?.id; persistPrefs(); $('voice-list').innerHTML = voiceCards(); bindVoiceCards(); updateVoiceLabel(); drawIcons(); notify(`Đã tải ${state.voices.length} giọng. Bạn có thể nghe thử để chọn.`); }
-      finally { if ($('connect-voices')) $('connect-voices').disabled = false; }
-    });
+    const loadVoices=async (more=false) => {
+      $('connect-voices').disabled=true;
+      try {
+        const page=more?state.voicePage+1:0;
+        const data=await api(`/api/voices?page=${page}&search=${encodeURIComponent(state.voiceSearch)}`,{headers:{'x-elevenlabs-key':state.key}});
+        state.voices=more?[...state.voices,...data.voices]:data.voices;state.voicePage=page;
+        if(!$('voice-list'))return;
+        $('voice-list').innerHTML=state.voices.length?voiceCards():'<p>Không tìm thấy giọng tiếng Việt. Thử từ khóa khác.</p>';
+        $('more-voices').hidden=!data.hasMore;bindVoiceCards();drawIcons();updateVoiceLabel();
+      } finally {if($('connect-voices'))$('connect-voices').disabled=false;}
+    };
+    $('connect-voices').onclick=safely(()=>loadVoices());
+    $('voice-search-form').onsubmit=safely(async e=>{e.preventDefault();state.voiceSearch=$('voice-search').value.trim();await loadVoices();});
+    $('more-voices').onclick=safely(()=>loadVoices(true));
+    if(state.serviceReady || state.key)loadVoices().catch(fail);
     $('stability').oninput = e => { prefs.stability = +e.target.value; $('stability-label').textContent = `${Math.round(prefs.stability * 100)}%`; persistPrefs(); };
     bindVoiceCards();
   } else {
-    const list = speechSynthesis.getVoices().sort((a,b) => Number(b.lang.startsWith('vi')) - Number(a.lang.startsWith('vi')));
-    $('device-voice').innerHTML = list.length ? list.map(v => `<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join('') : '<option value="">Trình duyệt chưa cung cấp giọng</option>';
+    const list = speechSynthesis.getVoices().filter(v=>v.lang.toLowerCase().startsWith('vi'));
+    $('device-voice').innerHTML = list.length ? list.map(v => `<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join('') : '<option value="">Thiết bị chưa có giọng tiếng Việt</option>';
     $('device-voice').value = prefs.deviceVoice || list.find(v => v.lang.startsWith('vi'))?.voiceURI || list[0]?.voiceURI || '';
     prefs.deviceVoice = $('device-voice').value;
     $('device-voice').onchange = e => { stopPlayback(); prefs.deviceVoice = e.target.value; persistPrefs(); updateVoiceLabel(); };
-    $('test-device').onclick = () => { stopPlayback(); const utter = new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.'); utter.voice = list.find(v => v.voiceURI === prefs.deviceVoice); utter.rate = prefs.rate; speechSynthesis.speak(utter); };
+    $('test-device').onclick = () => { if(!list.length)return notify('Thiết bị chưa có giọng tiếng Việt. Hãy chọn giọng AI.'); stopPlayback(); const utter = new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.'); utter.voice = list.find(v => v.voiceURI === prefs.deviceVoice); utter.rate = prefs.rate; speechSynthesis.speak(utter); };
   }
 }
-function voiceCards() { return state.voices.map(v => `<div class="voice-card ${prefs.voice === v.id ? 'selected' : ''}"><button data-voice="${esc(v.id)}"><span class="voice-avatar">${icon('headphones')}</span><div><strong>${esc(v.name)}</strong><small>${esc([v.labels.language, v.labels.gender, v.labels.accent].filter(Boolean).join(' · ') || 'Giọng đa ngôn ngữ')}</small></div>${prefs.voice === v.id ? icon('check') : ''}</button>${v.preview ? `<button class="icon-button" data-preview="${esc(v.id)}" aria-label="Nghe mẫu ${esc(v.name)}">${icon('play')}</button>` : ''}</div>`).join(''); }
+function voiceCards() { return state.voices.map(v => `<div class="voice-card ${prefs.voice === v.id ? 'selected' : ''}"><button data-voice="${esc(v.id)}"><span class="voice-avatar">${icon('headphones')}</span><div><strong>${esc(v.name)}</strong><small>${esc([v.labels.language, v.labels.gender, v.labels.accent].filter(Boolean).join(' · ') || 'Tiếng Việt')}</small></div>${prefs.voice === v.id ? icon('check') : ''}</button>${v.preview ? `<button class="icon-button" data-preview="${esc(v.id)}" aria-label="Nghe mẫu ${esc(v.name)}">${icon('play')}</button>` : ''}</div>`).join(''); }
 function bindVoiceCards() {
-  document.querySelectorAll('[data-voice]').forEach(el => el.onclick = () => { stopPlayback(); prefs.voice = el.dataset.voice; persistPrefs(); updateVoiceLabel(); $('voice-list').innerHTML = voiceCards(); bindVoiceCards(); drawIcons(); });
+  document.querySelectorAll('[data-voice]').forEach(el => el.onclick = safely(async () => { stopPlayback(); const selected=state.voices.find(v=>v.id===el.dataset.voice); let id=selected.id; if(selected.owner){el.disabled=true;try{const added=await api('/api/add-voice',{method:'POST',headers:{'Content-Type':'application/json','x-elevenlabs-key':state.key},body:JSON.stringify({owner:selected.owner,voice:selected.id,name:selected.name})});id=added.id;}finally{el.disabled=false;}} prefs.voice=id; selected.id=id; prefs.voiceName=selected.name; persistPrefs(); updateVoiceLabel(); $('voice-list').innerHTML = voiceCards(); bindVoiceCards(); drawIcons(); notify('Đã chọn giọng tiếng Việt.'); }));
   document.querySelectorAll('[data-preview]').forEach(el => el.onclick = safely(async () => { stopPlayback(); previewAudio?.pause(); previewAudio = new Audio(state.voices.find(v => v.id === el.dataset.preview).preview); await previewAudio.play(); }));
 }
-function updateVoiceLabel() { $('player-voice-name').textContent = prefs.provider === 'ai' ? state.voices.find(v => v.id === prefs.voice)?.name || 'Giọng đọc AI' : 'Giọng thiết bị'; }
+function updateVoiceLabel() { $('player-voice-name').textContent = prefs.provider === 'ai' ? state.voices.find(v => v.id === prefs.voice)?.name || prefs.voiceName || 'Chọn giọng tiếng Việt' : 'Giọng thiết bị'; }
 async function api(url, options = {}) {
   const response = await fetch(url, options); let data;
   try { data = await response.json(); } catch { throw new Error('API giọng đọc chưa khả dụng. Chạy trên Vercel để dùng giọng AI.'); }
@@ -247,13 +277,13 @@ async function chapterIndex() {
 function highlight(position) {
   if (!state.rendition || !prefs.follow) return;
   const contents = state.rendition.getContents().find(c => c.sectionIndex === state.speechChapter); if (!contents) return;
-  const index = indexText(contents.document); const [start,end] = wordRange(index.text, position);
-  const marker = `${state.speechChapter}:${start}`; if (state.highlighted === marker) return; state.highlighted = marker;
+  const index = indexText(contents.document); const [start,end] = phraseRange(index.text, position);
+  const marker = `${state.speechChapter}:${start}`; const repaint = state.highlighted !== marker; state.highlighted = marker;
   const range = domRange(contents.document, index.entries, start, end); if (!range) return;
-  if (contents.window.Highlight && contents.window.CSS?.highlights) contents.window.CSS.highlights.set('epubaudio', new contents.window.Highlight(range));
-  else { const cfi = contents.cfiFromRange(range); if (state.lastAnnotation) state.rendition.annotations.remove(state.lastAnnotation, 'highlight'); state.rendition.annotations.highlight(cfi, {}, null, 'audio-follow', { fill: '#c5d69b', 'fill-opacity': '0.55' }); state.lastAnnotation = cfi; }
+  if (repaint && contents.window.Highlight && contents.window.CSS?.highlights) contents.window.CSS.highlights.set('epubaudio', new contents.window.Highlight(range));
+  else if (repaint) { const cfi = contents.cfiFromRange(range); if (state.lastAnnotation) state.rendition.annotations.remove(state.lastAnnotation, 'highlight'); state.rendition.annotations.highlight(cfi, {}, null, 'audio-follow', { fill: '#c5d69b', 'fill-opacity': '0.55' }); state.lastAnnotation = cfi; }
   state.current.listen = { chapter: state.speechChapter, offset: position }; saveBook();
-  const location = state.rendition.currentLocation(); const cfi = contents.cfiFromRange(range);
+  const location = state.rendition.currentLocation(); const point = domRange(contents.document, index.entries, position, Math.min(position + 1, index.text.length)); if (!point) return; const cfi = contents.cfiFromRange(point);
   if (location?.start && !state.following && (state.rendition.epubcfi.compare(cfi, location.start.cfi) < 0 || state.rendition.epubcfi.compare(cfi, location.end.cfi) > 0)) {
     state.following = true; state.rendition.display(cfi).catch(() => {}).finally(() => { state.following = false; });
   }
@@ -264,7 +294,7 @@ async function togglePlayback() {
   if (state.playing) { state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
   if (state.audio) { await state.audio.play(); playerState(true); return; }
   if (prefs.provider === 'device' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { speechSynthesis.resume(); playerState(true); return; }
-  if (prefs.provider === 'ai' && (!state.key || !prefs.voice)) { voicesPanel(); return notify('Kết nối ElevenLabs và chọn giọng để bắt đầu nghe.'); }
+  if (prefs.provider === 'ai' && !prefs.voice) { voicesPanel(); return notify('Kết nối ElevenLabs và chọn giọng để bắt đầu nghe.'); }
   const { contents, text, entries } = await chapterIndex();
   let start = 0, end = text.length;
   if (state.selection?.chapter === state.chapter) { start = state.selection.start; end = state.selection.end; }
@@ -283,6 +313,7 @@ async function togglePlayback() {
       const cacheKey = `audio:${state.current.id}:${[...new Uint8Array(digest)].map(x => x.toString(16).padStart(2,'0')).join('')}`;
       let data = await get(cacheKey);
       if (!data) {
+        if(!state.key && !state.serviceReady)throw new Error('Hãy cấu hình ELEVENLABS_API_KEY trên Vercel hoặc nhập khóa trong phần Giọng đọc.');
         $('player-message').textContent = `Đang tạo ${state.speechText.length.toLocaleString('vi')} ký tự · Tính phí vào ElevenLabs của bạn`;
         state.controller = new AbortController();
         data = await api('/api/speech', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-elevenlabs-key': state.key }, body: JSON.stringify({ text: state.speechText, voice: prefs.voice, stability: prefs.stability ?? .5 }), signal: state.controller.signal });
@@ -305,10 +336,11 @@ async function togglePlayback() {
       audio.onerror = () => { stopPlayback(); notify('Không phát được audio. Hãy thử lại.'); };
       await audio.play();
       if (token !== state.token) { audio.pause(); return; }
-      playerState(true); $('player-message').textContent = 'Giọng AI · Audio được lưu trên thiết bị · Theo vết từng từ';
+      playerState(true); $('player-message').textContent = 'Giọng AI · Audio được lưu trên thiết bị · Theo vết theo cụm dấu câu';
     } else {
       if (!('speechSynthesis' in window)) throw new Error('Trình duyệt không hỗ trợ giọng thiết bị.');
-      const utter = new SpeechSynthesisUtterance(state.speechText); utter.voice = speechSynthesis.getVoices().find(v => v.voiceURI === prefs.deviceVoice) || null; utter.lang = utter.voice?.lang || 'vi-VN'; utter.rate = prefs.rate; utter.volume = prefs.volume;
+      const voice=speechSynthesis.getVoices().find(v=>v.voiceURI===prefs.deviceVoice && v.lang.toLowerCase().startsWith('vi')) || speechSynthesis.getVoices().find(v=>v.lang.toLowerCase().startsWith('vi')); if(!voice)throw new Error('Thiết bị chưa có giọng tiếng Việt. Hãy chọn giọng AI.');
+      const utter = new SpeechSynthesisUtterance(state.speechText); utter.voice = voice; utter.lang = utter.voice?.lang || 'vi-VN'; utter.rate = prefs.rate; utter.volume = prefs.volume;
       utter.onboundary = e => { if (token === state.token) { highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
       utter.onend = safely(() => completeChapter(token, selectionOnly)); utter.onerror = e => { if (token === state.token && !['canceled','interrupted'].includes(e.error)) { stopPlayback(); notify('Giọng thiết bị bị gián đoạn. Bạn có thể dùng giọng AI.'); } };
       utter.onstart = () => { if (token === state.token) playerState(true); };
@@ -330,6 +362,10 @@ function sleepPanel() {
 }
 function keyboard(e) { if ($('panel').open || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || !state.rendition) return; if (e.code === 'Space') { e.preventDefault(); safely(togglePlayback)(); } if (e.code === 'ArrowRight') safely(async () => { stopPlayback(); state.current.listen = null; await state.rendition.next(); })(); if (e.code === 'ArrowLeft') safely(async () => { stopPlayback(); state.current.listen = null; await state.rendition.prev(); })(); }
 
+function setSidebar(open) { document.body.classList.toggle('sidebar-open', open); $('sidebar-backdrop').hidden = !open; $('toggle-sidebar').setAttribute('aria-expanded', String(open)); $('toggle-sidebar').setAttribute('aria-label', open ? 'Đóng thanh bên' : 'Mở thanh bên'); }
+$('toggle-sidebar').onclick = () => setSidebar(!document.body.classList.contains('sidebar-open'));
+$('sidebar-backdrop').onclick = () => setSidebar(false);
+window.addEventListener('keydown', event => { if (event.key === 'Escape') setSidebar(false); });
 $('brand').onclick = e => { e.preventDefault(); if (state.current) safely(goLibrary)(); };
 $('nav-library').onclick = () => { if (state.current) safely(goLibrary)(); };
 $('back-library').onclick = safely(goLibrary);
@@ -361,3 +397,5 @@ document.addEventListener('drop', safely(async e => { e.preventDefault(); dragDe
 window.addEventListener('pagehide', () => { previewAudio?.pause(); state.audio?.pause(); if ('speechSynthesis' in window) speechSynthesis.cancel(); flushRecord().catch(() => {}); });
 applyTheme(); setRate(); drawIcons(); refreshLibrary().catch(error => { fail(error); $('shelf').innerHTML = '<p>Không truy cập được bộ nhớ. Hãy bật lưu trữ cho trang này rồi tải lại.</p>'; });
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { if ($('panel').open && $('device-voice')) voicesPanel(); };
+
+api('/api/config').then(data=>{state.serviceReady=data.elevenReady;}).catch(()=>{});
