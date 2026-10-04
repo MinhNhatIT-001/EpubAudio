@@ -133,13 +133,12 @@ async function openBook(id) {
       const entry = index.entries.find(item => item.node === node);
       if (!entry) return;
       const point = entry.start + (caret?.offset ?? fallback?.startOffset ?? 0);
-      const block = node.parentElement?.closest('p,li,blockquote,h1,h2,h3,h4,h5,h6');
-      const entries = block ? index.entries.filter(item => block.contains(item.node)) : [];
-      const [start, end] = entries.length ? [entries[0].start, entries.at(-1).end] : phraseRange(index.text, point);
+      const [start] = phraseRange(index.text, point);
+      const end = index.text.length;
       stopPlayback(); state.chapter = contents.sectionIndex;
-      state.selection = { start, end, chapter: contents.sectionIndex };
+      state.selection = { start, end, chapter: contents.sectionIndex, continueReading: true };
       contents.window.getSelection()?.removeAllRanges();
-      $('player-message').textContent = 'Đang đọc đoạn vừa nhấn đúp…';
+      $('player-message').textContent = 'Đang đọc từ cụm vừa nhấn đúp…';
       await togglePlayback();
     }));
     contents.document.addEventListener('click', () => {
@@ -302,9 +301,9 @@ async function togglePlayback() {
     try { const range = state.book.getRange ? await state.book.getRange(state.current.cfi) : null; if (range) { const visibleEntry = entries.find(x => x.node === range.startContainer); if (visibleEntry) start = visibleEntry.start + range.startOffset; else { const visible = state.rendition.getRange(state.current.cfi); if (visible) start = offsetOf(entries, visible.startContainer, visible.startOffset); } } } catch { /* Start of chapter. */ }
     if (state.current.listen?.chapter === state.chapter && state.current.listen.offset >= start) start = state.current.listen.offset;
   }
-  const selectionOnly = !!state.selection;
+  const selectionOnly = !!state.selection && !state.selection.continueReading;
   if (!text.slice(start,end).trim()) return notify('Trang này không có văn bản có thể đọc. Hãy chuyển chương.');
-  state.base = prefs.provider === 'ai' && !selectionOnly ? 0 : start; state.speechText = text.slice(state.base,end); state.speechChapter = contents.sectionIndex; const resumeOffset = start - state.base;
+  state.base = prefs.provider === 'ai' && !state.selection ? 0 : start; state.speechText = text.slice(state.base,end); state.speechChapter = contents.sectionIndex; const resumeOffset = start - state.base;
   const token = ++state.token; playerState(false, true);
   try {
     if (prefs.provider === 'ai') {
