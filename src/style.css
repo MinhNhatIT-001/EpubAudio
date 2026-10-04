@@ -33,3 +33,6 @@ body.reading .player{height:100px;padding:8px 24px}
 body.reading .page-turn.prev{left:3px}
 body.reading .page-turn.next{right:3px}
 @media(max-width:580px){body.reading .reader-top{height:60px;padding:0 5px;gap:3px}body.reading .reader-title{flex:1}body.reading .reader-title strong{max-width:150px}body.reading .reader-top .icon-button{width:27px}body.reading .reading-area{height:calc(100dvh - 180px);padding:3px 21px 25px}body.reading .player{height:120px;padding:7px 12px}body.reading .page-turn.prev{left:0}body.reading .page-turn.next{right:0}}
+
+.skip-seconds{flex-direction:column;gap:0;line-height:16px;font-size:20px}.skip-seconds span{font-size:8px;line-height:10px}.player-controls{gap:10px}
+@media(max-width:580px){.player-controls{gap:4px}.player-controls .icon-button{width:28px}.player-controls .play-button{width:36px;height:36px}.player-controls .rate-button{width:28px}}

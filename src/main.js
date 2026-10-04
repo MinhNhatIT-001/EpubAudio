@@ -3,6 +3,7 @@ import { get, set, del, keys } from 'idb-keyval';
 import { createIcons, BookOpen, Headphones, Plus, Library, Bookmark, Settings2, Menu, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle } from 'lucide';
 import { indexText, phraseRange, textPoint, domRange, offsetOf } from './text.js';
 import { demoBook } from './demo.js';
+import { speechTimeline, timeAtOffset, offsetAtTime } from './speech-timing.js';
 import './style.css';
 
 const $ = (id) => document.getElementById(id);
@@ -14,7 +15,7 @@ let prefs;
 try { prefs = JSON.parse(localStorage.getItem('epubaudio-prefs') || '{}'); } catch { prefs = {}; }
 prefs = { theme: 'original', font: '', size: 19, line: 1.8, rate: 1, volume: 1, provider: 'device', follow: true, auto: true, ...prefs };
 prefs.provider='device'; delete prefs.voice; delete prefs.voiceName; delete prefs.voiceCatalogVersion; delete prefs.stability;
-const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null };
+const state = { library: [], current: null, book: null, rendition: null, chapter: 0, toc: [], playing: false, busy: false, token: 0, offset: 0, speechText: '', base: 0, audio: null, audioUrl: null, alignment: null, highlighted: '', selection: null, cached: null, deviceSession: null };
 let sleepTimer, toastTimer, saveTimer, previewAudio;
 const objectUrls = new Set();
 const urlFor = blob => { const url = URL.createObjectURL(blob); objectUrls.add(url); return url; };
@@ -41,7 +42,7 @@ $('app').innerHTML = `
   <section id="reader-view" hidden>
     <header class="reader-top"><button class="icon-button" id="toggle-sidebar" aria-label="Mở thanh bên" aria-expanded="false">${icon('menu')}</button><button class="icon-button" id="back-library" aria-label="Về thư viện">${icon('chevron-left')}</button><div class="reader-title"><strong id="reader-title"></strong><span id="chapter-title"></span></div><div class="reader-actions"><button class="icon-button" id="toc-button" aria-label="Mục lục">${icon('list')}</button><button class="icon-button" id="bookmark-button" aria-label="Thêm dấu trang">${icon('bookmark')}</button><button class="icon-button" id="reader-settings" aria-label="Tùy chỉnh đọc">${icon('settings-2')}</button></div></header>
     <div class="reading-area"><button class="page-turn prev" id="prev-page" aria-label="Trang trước">${icon('chevron-left')}</button><div id="viewer"></div><button class="page-turn next" id="next-page" aria-label="Trang sau">${icon('chevron-right')}</button><div class="reading-status"><span id="page-info"></span><span id="read-progress">0%</span></div></div>
-    <div class="player"><div class="player-voice"><span class="player-avatar">${icon('headphones')}</span><div><strong id="player-voice-name">Giọng đọc</strong><button id="change-voice">Chọn giọng đọc ${icon('chevron-right')}</button></div></div><div class="player-main"><div class="player-controls"><button class="icon-button" id="prev-chapter" aria-label="Chương trước">${icon('skip-back')}</button><button class="play-button" id="play" aria-label="Bắt đầu nghe">${icon('play')}</button><button class="icon-button" id="next-chapter" aria-label="Chương sau">${icon('skip-forward')}</button><button class="rate-button" id="cycle-rate">1×</button></div><div class="audio-timeline"><span id="elapsed">0:00</span><input type="range" id="seek" min="0" max="100" value="0" step="0.1" aria-label="Vị trí audio" disabled/><span id="duration">--:--</span></div><div class="player-message" id="player-message">Nghe nguyên chương · Không thay đổi bố cục EPUB</div></div><div class="player-extras"><button class="icon-button" id="sleep-button" aria-label="Hẹn giờ ngủ">${icon('moon')}</button><label class="volume-control">${icon('volume-2')}<input type="range" id="volume" min="0" max="1" step="0.05" value="${prefs.volume}" aria-label="Âm lượng"/></label></div></div>
+    <div class="player"><div class="player-voice"><span class="player-avatar">${icon('headphones')}</span><div><strong id="player-voice-name">Giọng đọc</strong><button id="change-voice">Chọn giọng đọc ${icon('chevron-right')}</button></div></div><div class="player-main"><div class="player-controls"><button class="icon-button" id="prev-chapter" aria-label="Chương trước">${icon('skip-back')}</button><button class="icon-button skip-seconds" id="rewind-five" aria-label="Lùi khoảng 5 giây" title="Lùi 5 giây (ước tính)">↶<span>~5s</span></button><button class="play-button" id="play" aria-label="Bắt đầu nghe">${icon('play')}</button><button class="icon-button skip-seconds" id="forward-five" aria-label="Tiến khoảng 5 giây" title="Tiến 5 giây (ước tính)">↷<span>~5s</span></button><button class="icon-button" id="next-chapter" aria-label="Chương sau">${icon('skip-forward')}</button><button class="rate-button" id="cycle-rate">1×</button></div><div class="audio-timeline"><span id="elapsed">0:00</span><input type="range" id="seek" min="0" max="100" value="0" step="0.1" aria-label="Vị trí audio" disabled/><span id="duration">--:--</span></div><div class="player-message" id="player-message">Nghe nguyên chương · Không thay đổi bố cục EPUB</div></div><div class="player-extras"><button class="icon-button" id="sleep-button" aria-label="Hẹn giờ ngủ">${icon('moon')}</button><label class="volume-control">${icon('volume-2')}<input type="range" id="volume" min="0" max="1" step="0.05" value="${prefs.volume}" aria-label="Âm lượng"/></label></div></div>
   </section>
 </main>
 <input id="file-input" type="file" accept=".epub,application/epub+zip" multiple hidden />
@@ -229,6 +230,7 @@ function updateVoiceLabel() { $('player-voice-name').textContent=window.speechSy
 function setRate() { persistPrefs(); $('cycle-rate').textContent = `${prefs.rate}×`; if (state.audio) state.audio.playbackRate = prefs.rate; }
 function playerState(playing, busy = false) { state.playing = playing; state.busy = busy; $('play').innerHTML = icon(busy ? 'loader-circle' : playing ? 'pause' : 'play', busy ? 'spin' : ''); $('play').setAttribute('aria-label', busy ? 'Hủy tạo audio' : playing ? 'Tạm dừng' : 'Bắt đầu nghe'); drawIcons(); }
 function stopPlayback() {
+  state.deviceSession=null;
   state.token++; state.controller?.abort(); state.controller = null; previewAudio?.pause(); state.audio?.pause();
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   state.audio = null; state.alignment = null; state.cached = null; state.highlighted = ''; state.selection = null;
@@ -259,9 +261,9 @@ function highlight(position) {
 async function togglePlayback() {
   if (!state.current) return;
   if (state.busy) { stopPlayback(); $('player-message').textContent = 'Đã dừng audio.'; return; }
-  if (state.playing) { state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
+  if (state.playing) { freezeDevicePosition(); state.audio ? state.audio.pause() : speechSynthesis.pause(); playerState(false); return; }
   if (state.audio) { await state.audio.play(); playerState(true); return; }
-  if (prefs.provider === 'device' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { speechSynthesis.resume(); playerState(true); return; }
+  if (prefs.provider === 'device' && speechSynthesis.paused && (speechSynthesis.pending || speechSynthesis.speaking)) { if(state.deviceSession)state.deviceSession.anchoredAt=performance.now(); speechSynthesis.resume(); playerState(true); return; }
   const { contents, text, entries } = await chapterIndex();
   let start = 0, end = text.length;
   if (state.selection?.chapter === state.chapter) { start = state.selection.start; end = state.selection.end; }
@@ -276,12 +278,36 @@ async function togglePlayback() {
   try {
       if (!('speechSynthesis' in window)) throw new Error('Trình duyệt không hỗ trợ giọng thiết bị.');
       const voice=speechSynthesis.getVoices().find(v=>v.voiceURI===prefs.deviceVoice && v.lang.toLowerCase().startsWith('vi')) || speechSynthesis.getVoices().find(v=>v.lang.toLowerCase().startsWith('vi')); if(!voice)throw new Error('Thiết bị chưa có giọng tiếng Việt. Hãy cài giọng Việt hoặc thử trình duyệt khác.');
+      state.deviceSession={text,chapter:contents.sectionIndex,end,selectionOnly,position:start,anchor:start,anchoredAt:performance.now(),timeline:speechTimeline(text,prefs.rate),scale:1};
       const utter = new SpeechSynthesisUtterance(state.speechText); utter.voice = voice; utter.lang = utter.voice?.lang || 'vi-VN'; utter.rate = prefs.rate; utter.volume = prefs.volume;
-      utter.onboundary = e => { if (token === state.token) { highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
+      utter.onboundary = e => { if (token === state.token) { const session=state.deviceSession;session.position=session.anchor=state.base+e.charIndex;session.anchoredAt=performance.now();const estimate=timeAtOffset(session.timeline,session.position)-timeAtOffset(session.timeline,state.base);if(estimate>.5 && e.elapsedTime>.1)session.scale=Math.max(.4,Math.min(3,e.elapsedTime/estimate)); highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
       utter.onend = safely(() => completeChapter(token, selectionOnly)); utter.onerror = e => { if (token === state.token && !['canceled','interrupted'].includes(e.error)) { stopPlayback(); notify('Giọng thiết bị bị gián đoạn. Hãy nhấn phát để thử lại.'); } };
-      utter.onstart = () => { if (token === state.token) playerState(true); };
+      utter.onstart = () => { if (token === state.token) {state.deviceSession.anchoredAt=performance.now();playerState(true);} };
       speechSynthesis.speak(utter); playerState(true); $('player-message').textContent = 'Giọng thiết bị · Theo vết khi trình duyệt cung cấp mốc đọc';
   } catch (error) { if (token === state.token) { stopPlayback(); $('player-message').textContent = 'Chưa phát audio'; if (error.name !== 'AbortError') throw error; } }
+}
+function devicePosition(session=state.deviceSession) {
+  if(!session)return 0;
+  const elapsed=state.playing?(performance.now()-session.anchoredAt)/1000:0;
+  return Math.min(session.end,offsetAtTime(session.timeline,timeAtOffset(session.timeline,session.anchor)+elapsed/session.scale));
+}
+function freezeDevicePosition() {
+  if(state.deviceSession){state.deviceSession.position=state.deviceSession.anchor=devicePosition();state.deviceSession.anchoredAt=performance.now();}
+}
+async function skipSeconds(seconds) {
+  if(state.audio){state.audio.currentTime=Math.max(0,Math.min(state.audio.duration || Infinity,state.audio.currentTime+seconds));return;}
+  const session=state.deviceSession;
+  if(!session)return notify('Nhấn phát trước để dùng nút lùi/tiến 5 giây.');
+  const wasPlaying=state.playing,position=devicePosition(session);
+  const target=Math.max(0,Math.min(session.end,offsetAtTime(session.timeline,timeAtOffset(session.timeline,position)+seconds/session.scale)));
+  const atEnd=target>=session.end;
+  stopPlayback();state.chapter=session.chapter;state.speechChapter=session.chapter;
+  state.current.listen={chapter:session.chapter,offset:target};saveBook();
+  state.selection={start:target,end:session.end,chapter:session.chapter,continueReading:!session.selectionOnly};
+  state.deviceSession={...session,position:target,anchor:target,anchoredAt:performance.now()};
+  highlight(target);$('elapsed').textContent='~'+formatTime(timeAtOffset(session.timeline,target)*session.scale);
+  $('player-message').textContent=atEnd?'Đã đến cuối đoạn đọc.':`${seconds<0?'Lùi':'Tiến'} khoảng 5 giây · Giọng thiết bị`;
+  if(wasPlaying){if(atEnd)await completeChapter(state.token,session.selectionOnly);else await togglePlayback();}
 }
 async function completeChapter(token, selectionOnly) {
   if (token !== state.token) return;
@@ -313,6 +339,8 @@ $('file-input').onchange = safely(e => importBooks([...e.target.files]));
 $('search').oninput = renderShelf; $('sort').onchange = renderShelf;
 $('demo').onclick = safely(async () => { $('demo').disabled = true; try { await importBooks([await demoBook()]); } finally { $('demo').disabled = false; } });
 $('play').onclick = safely(togglePlayback);
+$('rewind-five').onclick=safely(()=>skipSeconds(-5));
+$('forward-five').onclick=safely(()=>skipSeconds(5));
 $('prev-page').onclick = safely(async () => { stopPlayback(); state.current.listen = null; await state.rendition.prev(); });
 $('next-page').onclick = safely(async () => { stopPlayback(); state.current.listen = null; await state.rendition.next(); });
 $('prev-chapter').onclick = safely(() => changeChapter(-1)); $('next-chapter').onclick = safely(() => changeChapter(1));
