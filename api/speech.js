@@ -1,3 +1,4 @@
+import { providerError } from '../server/eleven-errors.js';
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Phương thức không được hỗ trợ.' });
@@ -12,7 +13,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5', voice_settings: { stability: Math.max(0, Math.min(1, Number(stability) || 0)), similarity_boost: 0.75 } }),
       signal: AbortSignal.timeout(55000)
     });
-    if (!response.ok) return res.status(response.status).json({ error: response.status === 401 ? 'Khóa API không hợp lệ hoặc thiếu quyền tạo audio.' : response.status === 429 ? 'Hết hạn mức hoặc đang có quá nhiều yêu cầu. Hãy kiểm tra ElevenLabs.' : 'ElevenLabs chưa tạo được audio. Hãy kiểm tra giọng và số dư tài khoản.' });
+    if (!response.ok) return res.status(response.status).json({ error: await providerError(response, 'speech') });
     const data = await response.json();
     if (!data.audio_base64 || !data.alignment) return res.status(502).json({ error: 'Dịch vụ không trả về audio kèm thời gian theo vết.' });
     return res.status(200).json({ audio_base64: data.audio_base64, alignment: data.alignment });
