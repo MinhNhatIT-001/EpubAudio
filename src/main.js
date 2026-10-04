@@ -1,7 +1,7 @@
 import ePub from 'epubjs';
 import { get, set, del, keys } from 'idb-keyval';
 import { createIcons, BookOpen, Headphones, Plus, Library, Bookmark, Settings2, Menu, ChevronLeft, ChevronRight, Play, Pause, X, Upload, ArrowUpRight, Volume2, SkipBack, SkipForward, Moon, Search, Trash2, List, Check, Leaf, Download, LoaderCircle } from 'lucide';
-import { indexText, phraseRange, domRange, charAtTime, offsetOf } from './text.js';
+import { indexText, phraseRange, textPoint, domRange, charAtTime, offsetOf } from './text.js';
 import { demoBook } from './demo.js';
 import './style.css';
 
@@ -123,25 +123,27 @@ async function openBook(id) {
   state.rendition.hooks.content.register(contents => {
     const style = contents.document.createElement('style'); style.textContent = '::highlight(epubaudio){background:#d5e3b4;color:inherit;text-decoration:underline;text-decoration-color:#8ca95e;text-decoration-thickness:2px}'; contents.document.head.appendChild(style);
     contents.document.addEventListener('keydown', keyboard);
-    contents.document.addEventListener('dblclick', safely(async event => {
-      if (event.target.closest('a,button,input,textarea,select')) return;
-      const doc = contents.document;
-      const caret = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
-      const fallback = caret ? null : doc.caretRangeFromPoint?.(event.clientX, event.clientY);
-      const node = caret?.offsetNode || fallback?.startContainer;
-      const index = indexText(doc);
-      const entry = index.entries.find(item => item.node === node);
-      if (!entry) return;
-      const point = entry.start + (caret?.offset ?? fallback?.startOffset ?? 0);
+    let lastDoubleClick=0;
+    const readAtClick=safely(async event=>{
+      if(event.button!==0 || event.target.closest?.('a,button,input,textarea,select'))return;
+      if(performance.now()-lastDoubleClick<250)return;
+      lastDoubleClick=performance.now();
+      const doc=contents.document, index=indexText(doc);
+      const point=textPoint(doc,index.entries,event.clientX,event.clientY,event.target);
+      if(point==null)return notify('Hãy nhấp đúp trực tiếp lên chữ trong sách để đọc từ cụm đó.');
       const [start] = phraseRange(index.text, point);
       const end = index.text.length;
       stopPlayback(); state.chapter = contents.sectionIndex;
       state.selection = { start, end, chapter: contents.sectionIndex, continueReading: true };
       contents.window.getSelection()?.removeAllRanges();
+      state.speechChapter=contents.sectionIndex; highlight(start);
+      notify('Đã chọn cụm: '+index.text.slice(start,phraseRange(index.text,start)[1]));
       $('player-message').textContent = 'Đang đọc từ cụm vừa nhấn đúp…';
       await togglePlayback();
-    }));
-    contents.document.addEventListener('click', () => {
+    });
+    contents.document.addEventListener('dblclick',readAtClick);
+    contents.document.addEventListener('click',event=>{
+      if(event.detail===2){readAtClick(event);return;}
       const selection = contents.window.getSelection();
       if (!selection?.isCollapsed && selection?.rangeCount) {
         const range = selection.getRangeAt(0); const index = indexText(contents.document);

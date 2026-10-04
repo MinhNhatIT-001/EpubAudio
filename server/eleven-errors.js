@@ -9,6 +9,7 @@ export async function providerError(response, operation) {
       ? 'Khóa được nhận nhưng thiếu quyền Voices: Read. Trong ElevenLabs, mở API Keys → Edit và bật quyền đọc giọng.'
       : 'Khóa thiếu quyền Text to Speech: Access. Trong ElevenLabs, mở API Keys → Edit và bật quyền tạo audio.';
   }
+  if(code==='payment_required' || response.status===402)return 'ElevenLabs yêu cầu gói trả phí hoặc thanh toán cho giọng này (402). Nhấp đúp đã chọn vị trí đọc, nhưng tài khoản chưa được phép tạo audio.';
   if (code === 'invalid_api_key') return 'ElevenLabs báo khóa API không hợp lệ hoặc đã bị thu hồi. Hãy dùng khóa bí mật mới, không dùng Key ID.';
   if (code === 'unusual_activity') return 'ElevenLabs đang hạn chế yêu cầu do phát hiện hoạt động bất thường. Hãy kiểm tra tài khoản hoặc liên hệ ElevenLabs; đây không phải kết luận khóa sai.';
   if (code === 'quota_exceeded') return 'Tài khoản hoặc khóa đã hết hạn mức ElevenLabs. Hãy kiểm tra số dư và giới hạn của khóa.';
