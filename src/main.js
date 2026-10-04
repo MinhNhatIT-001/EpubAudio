@@ -218,40 +218,50 @@ async function bookmarksPanel() {
 function browserVoices() {
   const known=new Map(state.browserVoices.map(v=>[v.voiceURI,v]));
   for(const voice of window.speechSynthesis?.getVoices() || [])if(voice.lang.toLowerCase().startsWith('vi'))known.set(voice.voiceURI,voice);
-  state.browserVoices=[...known.values()];return state.browserVoices;
+  state.browserVoices=[...known.values()];
+  if(!prefs.voiceChoices){const legacy=state.browserVoices.find(v=>v.voiceURI===prefs.browserVoice);if(legacy){prefs.voiceSource=legacy.localService===false?'browser':'device';prefs.voiceChoices={[prefs.voiceSource]:{uri:legacy.voiceURI,name:legacy.name}};persistPrefs();}}
+  return state.browserVoices;
 }
+function activeVoiceSource(){return prefs.voiceSource || 'device';}
+function sourceVoices(){return browserVoices().filter(v=>activeVoiceSource()==='browser'?v.localService===false:v.localService!==false);}
+function sourceChoice(){return prefs.voiceChoices?.[activeVoiceSource()] || (!prefs.voiceChoices?{uri:prefs.browserVoice,name:prefs.browserVoiceName}:{});}
 function chosenBrowserVoice() {
-  const voices=browserVoices();
-  return prefs.browserVoice?voices.find(v=>v.voiceURI===prefs.browserVoice):voices[0];
+  const voices=sourceVoices(),choice=sourceChoice();return choice.uri?voices.find(v=>v.voiceURI===choice.uri):voices[0];
 }
 function rememberBrowserVoice(voice) {
   if(!voice)return;
-  prefs.browserVoice=voice.voiceURI;prefs.browserVoiceName=voice.name;persistPrefs();updateVoiceLabel();
+  prefs.voiceSource=activeVoiceSource();prefs.voiceChoices={...prefs.voiceChoices,[prefs.voiceSource]:{uri:voice.voiceURI,name:voice.name}};persistPrefs();updateVoiceLabel();
+}
+function refreshVoiceSourceButtons(){
+  const source=activeVoiceSource();for(const name of ['browser','device']){const button=$('source-'+name);if(button){button.classList.toggle('primary',source===name);button.setAttribute('aria-pressed',String(source===name));}}
+  if($('voice-source-note'))$('voice-source-note').textContent=source==='browser'?'Giọng trực tuyến do trình duyệt cung cấp. Nếu không có giọng Việt, web sẽ không tự chuyển sang giọng thiết bị.':'Giọng tiếng Việt có sẵn trên máy, được trình duyệt cung cấp.';
 }
 function refreshBrowserVoiceOptions() {
   const select=$('browser-voice');if(!select || document.activeElement===select)return;
-  const list=browserVoices(),selected=prefs.browserVoice || select.value || list[0]?.voiceURI || '';
-  const signature=JSON.stringify([list.map(v=>[v.voiceURI,v.name,v.lang]),selected]);
+  const list=sourceVoices(),choice=sourceChoice(),selected=choice.uri || list[0]?.voiceURI || '';
+  refreshVoiceSourceButtons();
+  const signature=JSON.stringify([activeVoiceSource(),list.map(v=>[v.voiceURI,v.name,v.lang]),selected]);
   if(select.dataset.signature===signature)return;
   select.innerHTML=list.map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${esc(v.lang)}</option>`).join('');
-  if(selected && !list.some(v=>v.voiceURI===selected))select.insertAdjacentHTML('afterbegin',`<option value="${esc(selected)}" disabled>${esc(prefs.browserVoiceName || 'Giọng đã chọn')} · Đang chờ trình duyệt nạp</option>`);
-  if(!list.length && !selected)select.innerHTML='<option value="">Đang chờ giọng tiếng Việt</option>';
+  if(selected && !list.some(v=>v.voiceURI===selected))select.insertAdjacentHTML('afterbegin',`<option value="${esc(selected)}" disabled>${esc(choice.name || 'Giọng đã chọn')} · Đang chờ trình duyệt nạp</option>`);
+  if(!list.length && !selected)select.innerHTML=`<option value="">${activeVoiceSource()==='browser'?'Trình duyệt chưa cung cấp giọng Việt trực tuyến':'Chưa có giọng Việt trên thiết bị'}</option>`;
   select.value=selected;select.dataset.signature=signature;
 }
 function voicesPanel() {
-  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn và nghe thử giọng mà trình duyệt cung cấp. Giọng đã chọn được giữ khi danh sách cập nhật.</p><label class="field-label" for="browser-voice">GIỌNG TRÌNH DUYỆT</label><select id="browser-voice" class="full-width"></select><p class="small-note">Danh sách có thể nạp thêm giọng sau khi mở trang. Web không tự đổi giọng bạn đã chọn.</p><button class="button full-width" id="test-browser">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
-  refreshBrowserVoiceOptions();
-  $('browser-voice').onchange=e=>{stopPlayback();rememberBrowserVoice(browserVoices().find(v=>v.voiceURI===e.target.value));};
+  openPanel('Giọng đọc tiếng Việt', `<p class="panel-intro">Chọn và nghe thử giọng mà trình duyệt cung cấp. Giọng đã chọn được giữ khi danh sách cập nhật.</p><div class="provider-options"><button id="source-browser" class="button" aria-pressed="false">Giọng trình duyệt</button><button id="source-device" class="button" aria-pressed="false">Giọng thiết bị</button></div><p id="voice-source-note" class="small-note"></p><label class="field-label" for="browser-voice">CHỌN GIỌNG TIẾNG VIỆT</label><select id="browser-voice" class="full-width"></select><p class="small-note">Danh sách có thể nạp thêm giọng sau khi mở trang. Web không tự đổi giọng bạn đã chọn.</p><button class="button full-width" id="test-browser">${icon('play')} Nghe thử</button><div class="range-field"><label for="speech-rate">Tốc độ đọc <span id="rate-label">${prefs.rate}×</span></label><input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="${prefs.rate}"/></div>`);
+  browserVoices();refreshVoiceSourceButtons();refreshBrowserVoiceOptions();
+  for(const source of ['browser','device'])$('source-'+source).onclick=()=>{stopPlayback();prefs.voiceSource=source;prefs.voiceChoices ||= {};persistPrefs();$('browser-voice').dataset.signature='';refreshVoiceSourceButtons();refreshBrowserVoiceOptions();updateVoiceLabel();};
+  $('browser-voice').onchange=e=>{stopPlayback();rememberBrowserVoice(sourceVoices().find(v=>v.voiceURI===e.target.value));};
   $('browser-voice').onblur=refreshBrowserVoiceOptions;
   $('speech-rate').oninput=e=>{prefs.rate=+e.target.value;$('rate-label').textContent=`${prefs.rate}×`;setRate();};
   $('test-browser').onclick=()=>{
-    const voice=browserVoices().find(v=>v.voiceURI===$('browser-voice').value);
+    const voice=sourceVoices().find(v=>v.voiceURI===$('browser-voice').value);
     if(!voice)return notify('Giọng này chưa được trình duyệt nạp. Hãy chờ một chút hoặc chọn giọng khác.');
     stopPlayback();rememberBrowserVoice(voice);
     const utter=new SpeechSynthesisUtterance('Một trang sách, một khoảng lặng. Chào mừng bạn đến với EpubAudio.');utter.voice=voice;utter.lang=voice.lang;utter.rate=prefs.rate;utter.volume=prefs.volume;speechSynthesis.speak(utter);
   };
 }
-function updateVoiceLabel() { $('player-voice-name').textContent=chosenBrowserVoice()?.name || prefs.browserVoiceName || 'Chọn giọng trình duyệt'; }
+function updateVoiceLabel() { $('player-voice-name').textContent=chosenBrowserVoice()?.name || sourceChoice().name || (activeVoiceSource()==='browser'?'Chọn giọng trình duyệt':'Chọn giọng thiết bị'); }
 
 function setRate() { persistPrefs(); $('cycle-rate').textContent = `${prefs.rate}×`; if (state.audio) state.audio.playbackRate = prefs.rate; }
 function playerState(playing, busy = false) { state.playing = playing; state.busy = busy; $('play').innerHTML = icon(busy ? 'loader-circle' : playing ? 'pause' : 'play', busy ? 'spin' : ''); $('play').setAttribute('aria-label', busy ? 'Hủy tạo audio' : playing ? 'Tạm dừng' : 'Bắt đầu nghe'); drawIcons(); }
@@ -310,7 +320,7 @@ async function togglePlayback() {
       utter.onboundary = e => { if (token === state.token) { const session=state.browserSession;session.position=session.anchor=state.base+e.charIndex;session.anchoredAt=performance.now();const estimate=timeAtOffset(session.timeline,session.position)-timeAtOffset(session.timeline,state.base);if(estimate>.5 && e.elapsedTime>.1)session.scale=Math.max(.4,Math.min(3,e.elapsedTime/estimate)); highlight(state.base + e.charIndex); state.current.listen = { chapter: state.speechChapter, offset: state.base + e.charIndex }; saveBook(); } };
       utter.onend = safely(() => completeChapter(token, selectionOnly)); utter.onerror = e => { if (token === state.token && !['canceled','interrupted'].includes(e.error)) { stopPlayback(); notify('Giọng trình duyệt bị gián đoạn. Hãy nhấn phát để thử lại.'); } };
       utter.onstart = () => { if (token === state.token) {state.browserSession.anchoredAt=performance.now();playerState(true);} };
-      speechSynthesis.speak(utter); playerState(true); $('player-message').textContent = 'Giọng trình duyệt · Theo vết khi trình duyệt cung cấp mốc đọc';
+      speechSynthesis.speak(utter); playerState(true); $('player-message').textContent = `${activeVoiceSource()==='browser'?'Giọng trình duyệt':'Giọng thiết bị'} · Theo vết khi có mốc đọc`;
   } catch (error) { if (token === state.token) { stopPlayback(); $('player-message').textContent = 'Chưa phát audio'; if (error.name !== 'AbortError') throw error; } }
 }
 function browserPosition(session=state.browserSession) {

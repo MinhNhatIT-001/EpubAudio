@@ -31,3 +31,5 @@ Repo `MinhNhatIT-001/EpubAudio`, framework Vite, build `pnpm build`, output `dis
 Giọng trình duyệt phụ thuộc hệ điều hành/trình duyệt; danh sách chỉ gồm giọng Việt. Theo vết và đọc nền cũng phụ thuộc trình duyệt. Dữ liệu sách ở IndexedDB, chưa đồng bộ đám mây. Không hỗ trợ DRM hoặc OCR chữ trong ảnh. Script và popup của EPUB bị vô hiệu hóa.
 
 Nút lùi/tiến 5 giây dùng thời gian ước tính cho giọng trình duyệt (Web Speech không có seek API), hiệu chỉnh từ boundary nếu có. Tua giữ trạng thái phát/tạm dừng và không thay đổi EPUB.
+
+Giọng đọc có hai lựa chọn riêng: Giọng trình duyệt (localService=false, trực tuyến) và Giọng thiết bị (localService=true hoặc không xác định). Mỗi lựa chọn nhớ giọng riêng. Nếu không có giọng Việt trực tuyến, danh sách trình duyệt trống và không tự đổi nguồn. Cả hai dùng Web Speech API; không bổ sung dịch vụ bên ngoài.
